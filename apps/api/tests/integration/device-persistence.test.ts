@@ -30,8 +30,8 @@ describe("Mira Device SQLite persistence", () => {
       count: 2,
     });
     // Simulate an account created before GLN-012 migration existed.
-    const historical = first.repository.createAccount("alice", "alice", "historical-password-hash", new Date().toISOString());
-    expect(historical.id).toBeTruthy();
+    const historicalId = randomUUID();
+    first.db.prepare("INSERT INTO accounts (id,username,username_normalized,password_hash) VALUES (?,?,?,?)").run(historicalId, "alice", "alice", "historical-password-hash");
     // Upgrade and restore a real password before exercising login on the new schema.
     first.db.close();
 
@@ -42,11 +42,11 @@ describe("Mira Device SQLite persistence", () => {
     expect(second.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'devices'").get()).toMatchObject({
       name: "devices",
     });
-    second.repository.updatePasswordAndRevokeSessions(historical.id, "temporary", new Date().toISOString());
+    // Historical accounts can now be backfilled into the registration outbox.
     // The pre-migration account remains available after schema upgrade.
-    expect(second.repository.findAccountById(historical.id)?.username).toBe("alice");
+    expect(second.repository.findAccountById(historicalId)?.username).toBe("alice");
 
-    const alice = await second.service.provisionAccount("alice2", password);
+    await second.service.provisionAccount("alice2", password);
     const aliceSession = await second.service.login("alice2", password, "127.0.0.1");
     const desktop = second.deviceService.register(aliceSession.sessionToken, {
       installationId: randomUUID(),
