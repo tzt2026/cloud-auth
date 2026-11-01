@@ -7,7 +7,8 @@ import { PasswordHasher } from "./security/password.js";
 import { LoginGuard } from "./security/login-guard.js";
 import { backfillGuanlanRegistrations, listGuanlanRegistrations, retryGuanlanRegistration, deliverGuanlanRegistrations, createGuanlanRegistrationTransport } from "./guanlan-registration.js";
 
-const [, , command, username] = process.argv;
+const command = process.argv[2];
+const username = process.argv[3] ?? "";
 
 if (!command || (!username && !['guanlan-backfill','guanlan-status','guanlan-deliver'].includes(command))) {
   printUsageAndExit();
