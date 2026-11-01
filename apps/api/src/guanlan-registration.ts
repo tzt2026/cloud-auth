@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 
 /** Only Cloud Auth may enqueue and deliver; Guanlan owns its account-space data. */
