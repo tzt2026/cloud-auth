@@ -25,7 +25,7 @@ describe("GLN-012 durable Guanlan space registration", () => {
     expect(retryGuanlanRegistration(db,a.id,new Date().toISOString())).toBe(true);
     const second=await deliverGuanlanRegistrations(db,{send:async id=>{sent.push(id);return true;}});
     expect(second.delivered).toBe(1);
-    expect(listGuanlanRegistrations(db)[0].status).toBe("delivered");
+    expect(listGuanlanRegistrations(db)[0]!.status).toBe("delivered");
     expect(backfillGuanlanRegistrations(db,new Date().toISOString())).toBe(0);
     db.close();
   });
@@ -33,11 +33,11 @@ describe("GLN-012 durable Guanlan space registration", () => {
     const {db,service}=fixture();
     const a=await service.provisionAccount("alice","strong account passphrase");
     service.setDisabled("alice",true);
-    expect(listGuanlanRegistrations(db)[0].status).toBe("withheld");
+    expect(listGuanlanRegistrations(db)[0]!.status).toBe("withheld");
     expect(retryGuanlanRegistration(db,a.id,new Date().toISOString())).toBe(false);
     expect((await deliverGuanlanRegistrations(db,{send:async()=>{throw Error("must not deliver");}})).delivered).toBe(0);
     service.setDisabled("alice",false);
-    expect(listGuanlanRegistrations(db)[0].status).toBe("pending");
+    expect(listGuanlanRegistrations(db)[0]!.status).toBe("pending");
     db.close();
   });
   it("validates signed transport config and rejects false success receipts",async()=>{
