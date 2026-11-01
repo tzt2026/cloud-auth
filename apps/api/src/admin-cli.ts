@@ -5,10 +5,11 @@ import { AuthRepository } from "./auth/auth-repository.js";
 import { AuthService, AuthError } from "./auth/auth-service.js";
 import { PasswordHasher } from "./security/password.js";
 import { LoginGuard } from "./security/login-guard.js";
+import { backfillGuanlanRegistrations, listGuanlanRegistrations, retryGuanlanRegistration, deliverGuanlanRegistrations, createGuanlanRegistrationTransport } from "./guanlan-registration.js";
 
 const [, , command, username] = process.argv;
 
-if (!command || !username) {
+if (!command || (!username && !['guanlan-backfill','guanlan-status','guanlan-deliver'].includes(command))) {
   printUsageAndExit();
 }
 
@@ -60,6 +61,31 @@ try {
       service.setDisabled(username, true);
       console.log(JSON.stringify({ username, disabled: true, sessionsRevoked: true }));
       break;
+    case "guanlan-backfill": {
+      const enqueued = backfillGuanlanRegistrations(db, new Date().toISOString());
+      console.log(JSON.stringify({ enqueued, registrations: listGuanlanRegistrations(db).length }));
+      break;
+    }
+    case "guanlan-status": {
+      const account = username ? repository.findAccountByUsername(username.trim().normalize("NFKC").toLowerCase()) : null;
+      console.log(JSON.stringify({ registrations: listGuanlanRegistrations(db, account?.id) }));
+      break;
+    }
+    case "guanlan-retry": {
+      const account = repository.findAccountByUsername(username.trim().normalize("NFKC").toLowerCase());
+      const requeued = account ? Number(retryGuanlanRegistration(db, account.id, new Date().toISOString())) : 0;
+      console.log(JSON.stringify({ requeued }));
+      break;
+    }
+    case "guanlan-deliver": {
+      const endpoint = process.env.MIRA_GUANLAN_REGISTRATION_URL;
+      const secret = process.env.MIRA_GUANLAN_REGISTRATION_SECRET;
+      if (!endpoint || !secret) throw new Error("Guanlan registration delivery not configured");
+      const result = await deliverGuanlanRegistrations(db, createGuanlanRegistrationTransport(endpoint, secret));
+      console.log(JSON.stringify(result));
+      if (result.failed) process.exitCode = 1;
+      break;
+    }
     default:
       printUsageAndExit();
   }
@@ -85,7 +111,7 @@ function readPasswordFromStdin(): string {
 
 function printUsageAndExit(): never {
   console.error(
-    "Usage: pnpm run admin <provision|reset-password|allow|deny|enable|disable> <username>\n" +
+    "Usage: pnpm run admin <provision|reset-password|allow|deny|enable|disable|guanlan-backfill|guanlan-status|guanlan-retry|guanlan-deliver> [username]\n" +
       "provision/reset-password read the password from stdin.",
   );
   process.exit(2);
