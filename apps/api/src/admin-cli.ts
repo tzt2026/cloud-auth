@@ -68,7 +68,7 @@ try {
     }
     case "guanlan-status": {
       const account = username ? repository.findAccountByUsername(username.trim().normalize("NFKC").toLowerCase()) : null;
-      console.log(JSON.stringify({ registrations: listGuanlanRegistrations(db, account?.id) }));
+      console.log(JSON.stringify({ registrations: username && !account ? [] : listGuanlanRegistrations(db, account?.id) }));
       break;
     }
     case "guanlan-retry": {
