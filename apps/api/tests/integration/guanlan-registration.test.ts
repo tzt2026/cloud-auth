@@ -22,8 +22,8 @@ describe("GLN-012 durable Guanlan space registration", () => {
     expect(first).toMatchObject({failed:1,delivered:0});
     expect(sent).toEqual([a.id]);
     expect(listGuanlanRegistrations(db)[0]).toMatchObject({status:"pending",attempts:1,lastError:"delivery_unconfirmed"});
-    expect(retryGuanlanRegistration(db,a.id,new Date().toISOString())).toBe(true);
-    const second=await deliverGuanlanRegistrations(db,{send:async id=>{sent.push(id);return true;}});
+    expect(retryGuanlanRegistration(db,a.id,new Date().toISOString())).toBe(false);
+    const second=await deliverGuanlanRegistrations(db,{send:async id=>{sent.push(id);return true;}},{now:()=>new Date(Date.now()+31_000)});
     expect(second.delivered).toBe(1);
     expect(listGuanlanRegistrations(db)[0]!.status).toBe("delivered");
     expect(backfillGuanlanRegistrations(db,new Date().toISOString())).toBe(0);
