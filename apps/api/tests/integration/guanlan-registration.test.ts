@@ -23,6 +23,10 @@ describe("GLN-012 durable Guanlan space registration", () => {
     expect(sent).toEqual([a.id]);
     expect(listGuanlanRegistrations(db)[0]).toMatchObject({status:"pending",attempts:1,lastError:"delivery_unconfirmed"});
     expect(retryGuanlanRegistration(db,a.id,new Date().toISOString())).toBe(false);
+    service.setDisabled("alice",true);
+    expect(listGuanlanRegistrations(db)[0]).toMatchObject({status:"withheld",attempts:1});
+    service.setDisabled("alice",false);
+    expect(listGuanlanRegistrations(db)[0]).toMatchObject({status:"pending",attempts:1});
     const second=await deliverGuanlanRegistrations(db,{send:async id=>{sent.push(id);return true;}},{now:()=>new Date(Date.now()+31_000)});
     expect(second.delivered).toBe(1);
     expect(listGuanlanRegistrations(db)[0]!.status).toBe("delivered");
