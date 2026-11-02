@@ -42,7 +42,7 @@ export function resumeGuanlanRegistration(db: DatabaseSync, accountId: string, n
   const eligibility = activePredicates.length ? " AND " + activePredicates.join(" AND ") : "";
   db.prepare(`INSERT INTO guanlan_registration_outbox(account_id,status,attempts,next_attempt_at,lease_until,last_error,updated_at)
     SELECT id, 'pending', 0, ?, NULL, NULL, ? FROM accounts WHERE id=?${eligibility}
-    ON CONFLICT(account_id) DO UPDATE SET status='pending', attempts=0, next_attempt_at=excluded.next_attempt_at,
+    ON CONFLICT(account_id) DO UPDATE SET status=CASE WHEN guanlan_registration_outbox.attempts >= ${GUANLAN_REGISTRATION_MAX_ATTEMPTS} THEN 'failed' ELSE 'pending' END, next_attempt_at=excluded.next_attempt_at,
       lease_until=NULL, last_error=NULL, updated_at=excluded.updated_at
     WHERE guanlan_registration_outbox.status = 'withheld'`).run(now, now, accountId);
 }
