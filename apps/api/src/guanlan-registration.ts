@@ -34,8 +34,11 @@ export function withholdGuanlanRegistration(db: DatabaseSync, accountId: string,
 
 /** Account reactivation schedules another attempt instead of blindly marking it delivered. */
 export function resumeGuanlanRegistration(db: DatabaseSync, accountId: string, now: string): void {
-  db.prepare(`UPDATE guanlan_registration_outbox SET status='pending', attempts=0, next_attempt_at=?, lease_until=NULL, last_error=NULL, updated_at=?
-    WHERE account_id=? AND status='withheld'`).run(now, now, accountId);
+  db.prepare(`INSERT INTO guanlan_registration_outbox(account_id,status,attempts,next_attempt_at,lease_until,last_error,updated_at)
+    SELECT id, 'pending', 0, ?, NULL, NULL, ? FROM accounts WHERE id=? AND ${ACTIVE_ACCOUNT}
+    ON CONFLICT(account_id) DO UPDATE SET status='pending', attempts=0, next_attempt_at=excluded.next_attempt_at,
+      lease_until=NULL, last_error=NULL, updated_at=excluded.updated_at
+    WHERE guanlan_registration_outbox.status IN ('withheld','failed')`).run(now, now, accountId);
 }
 
 export function listGuanlanRegistrations(db: DatabaseSync, accountId?: string): RegistrationRecord[] {
@@ -55,6 +58,11 @@ export function retryGuanlanRegistration(db: DatabaseSync, accountId: string, no
 function claim(db: DatabaseSync, now: string): RegistrationRecord | null {
   db.exec("BEGIN IMMEDIATE");
   try {
+    // A process may die after claiming the final allowed attempt. Once its lease
+    // expires, make that exhausted record terminal and manually recoverable.
+    db.prepare(`UPDATE guanlan_registration_outbox
+      SET status='failed', lease_until=NULL, last_error='delivery_interrupted_after_max_attempts', updated_at=?
+      WHERE status='delivering' AND attempts >= ? AND lease_until <= ?`).run(now, GUANLAN_REGISTRATION_MAX_ATTEMPTS, now);
     const row = db.prepare(`SELECT r.account_id AS accountId, r.status, r.attempts, r.next_attempt_at AS nextAttemptAt,
       r.lease_until AS leaseUntil, r.last_error AS lastError
       FROM guanlan_registration_outbox r JOIN accounts a ON a.id=r.account_id
