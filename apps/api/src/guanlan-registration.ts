@@ -4,7 +4,7 @@ import type { DatabaseSync } from "node:sqlite";
 /** Only Cloud Auth may enqueue and deliver; Guanlan owns its account-space data. */
 export interface RegistrationRecord {
   accountId: string;
-  status: "pending" | "delivering" | "delivered" | "withheld";
+  status: "pending" | "delivering" | "delivered" | "withheld" | "failed";
   attempts: number;
   nextAttemptAt: string;
   leaseUntil: string | null;
@@ -12,6 +12,7 @@ export interface RegistrationRecord {
 }
 
 const ACTIVE_ACCOUNT = "a.is_allowed = 1 AND a.disabled_at IS NULL";
+export const GUANLAN_REGISTRATION_MAX_ATTEMPTS = 8;
 
 /** Run inside the same transaction as account creation. */
 export function enqueueGuanlanRegistration(db: DatabaseSync, accountId: string, now: string): void {
@@ -45,7 +46,7 @@ export function listGuanlanRegistrations(db: DatabaseSync, accountId?: string): 
 
 export function retryGuanlanRegistration(db: DatabaseSync, accountId: string, now: string): boolean {
   const result = db.prepare(`UPDATE guanlan_registration_outbox SET status='pending', attempts=0, next_attempt_at=?, lease_until=NULL, last_error=NULL, updated_at=?
-    WHERE account_id=? AND status IN ('pending','delivering')
+    WHERE account_id=? AND status IN ('pending','delivering','failed')
     AND EXISTS (SELECT 1 FROM accounts a WHERE a.id=account_id AND ${ACTIVE_ACCOUNT})`).run(now, now, accountId);
   return result.changes === 1;
 }
@@ -58,9 +59,9 @@ function claim(db: DatabaseSync, now: string): RegistrationRecord | null {
       r.lease_until AS leaseUntil, r.last_error AS lastError
       FROM guanlan_registration_outbox r JOIN accounts a ON a.id=r.account_id
       WHERE ${ACTIVE_ACCOUNT} AND (
-        (r.status='pending' AND r.next_attempt_at <= ?) OR
-        (r.status='delivering' AND r.lease_until <= ?)
-      ) ORDER BY r.next_attempt_at, r.account_id LIMIT 1`).get(now, now) as unknown as RegistrationRecord | undefined;
+        (r.status='pending' AND r.attempts < ? AND r.next_attempt_at <= ?) OR
+        (r.status='delivering' AND r.attempts < ? AND r.lease_until <= ?)
+      ) ORDER BY r.next_attempt_at, r.account_id LIMIT 1`).get(GUANLAN_REGISTRATION_MAX_ATTEMPTS, now, GUANLAN_REGISTRATION_MAX_ATTEMPTS, now) as unknown as RegistrationRecord | undefined;
     if (!row) { db.exec("COMMIT"); return null; }
     const leaseUntil = new Date(Date.parse(now) + 60_000).toISOString();
     db.prepare(`UPDATE guanlan_registration_outbox SET status='delivering', attempts=attempts+1, lease_until=?, updated_at=? WHERE account_id=?`).run(leaseUntil, now, row.accountId);
@@ -92,12 +93,13 @@ export async function deliverGuanlanRegistrations(
         AND EXISTS (SELECT 1 FROM accounts a WHERE a.id=account_id AND ${ACTIVE_ACCOUNT})`).run(finished, job.accountId, job.leaseUntil);
       delivered += Number(result.changes);
     } else {
+      const exhausted = job.attempts >= GUANLAN_REGISTRATION_MAX_ATTEMPTS;
       const seconds = Math.min(3600, 30 * 2 ** Math.min(7, job.attempts-1));
       const next = new Date(Date.parse(finished)+seconds*1000).toISOString();
-      const result = db.prepare(`UPDATE guanlan_registration_outbox SET status='pending', next_attempt_at=?, lease_until=NULL,
+      const result = db.prepare(`UPDATE guanlan_registration_outbox SET status=?, next_attempt_at=?, lease_until=NULL,
         last_error='delivery_unconfirmed', updated_at=?
         WHERE account_id=? AND status='delivering' AND lease_until=?
-        AND EXISTS (SELECT 1 FROM accounts a WHERE a.id=account_id AND ${ACTIVE_ACCOUNT})`).run(next, finished, job.accountId, job.leaseUntil);
+        AND EXISTS (SELECT 1 FROM accounts a WHERE a.id=account_id AND ${ACTIVE_ACCOUNT})`).run(exhausted ? 'failed' : 'pending', next, finished, job.accountId, job.leaseUntil);
       failed += Number(result.changes);
     }
   }
