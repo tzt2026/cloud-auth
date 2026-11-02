@@ -52,6 +52,14 @@ describe("GLN-012 durable Guanlan space registration", () => {
     }
     expect(listGuanlanRegistrations(db)[0]!.status).toBe("failed");
     expect(listGuanlanRegistrations(db)[0]!.attempts).toBe(GUANLAN_REGISTRATION_MAX_ATTEMPTS);
+    // Reconciliation-style access toggles must not bypass the explicit retry command.
+    service.setDisabled("retry-limit",true);
+    expect(listGuanlanRegistrations(db)[0]!).toMatchObject({status:"failed",attempts:GUANLAN_REGISTRATION_MAX_ATTEMPTS});
+    service.setDisabled("retry-limit",false);
+    service.setAllowed("retry-limit",false);
+    expect(listGuanlanRegistrations(db)[0]!).toMatchObject({status:"failed",attempts:GUANLAN_REGISTRATION_MAX_ATTEMPTS});
+    service.setAllowed("retry-limit",true);
+    expect(listGuanlanRegistrations(db)[0]!).toMatchObject({status:"failed",attempts:GUANLAN_REGISTRATION_MAX_ATTEMPTS});
     clock+=4_000_000;
     expect((await deliverGuanlanRegistrations(db,{send:async()=>{throw Error("terminal failure must not auto-retry");}},{now})).failed).toBe(0);
     expect(retryGuanlanRegistration(db,a.id,now().toISOString())).toBe(true);
