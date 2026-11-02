@@ -58,6 +58,29 @@ describe("GLN-012 durable Guanlan space registration", () => {
     expect(listGuanlanRegistrations(db)[0]!).toMatchObject({status:"pending",attempts:0});
     db.close();
   });
+  it("recovers a process interruption after the final leased attempt", async () => {
+    const {db,service}=fixture();
+    const a=await service.provisionAccount("interrupted","strong account passphrase");
+    const expired="2020-01-01T00:00:00.000Z";
+    db.prepare("UPDATE guanlan_registration_outbox SET status='delivering', attempts=?, lease_until=? WHERE account_id=?")
+      .run(GUANLAN_REGISTRATION_MAX_ATTEMPTS, expired, a.id);
+    await deliverGuanlanRegistrations(db,{send:async()=>{throw Error("exhausted lease must not be delivered");}},{now:()=>new Date("2026-11-02T00:00:00.000Z")});
+    expect(listGuanlanRegistrations(db)[0]!).toMatchObject({status:"failed",attempts:GUANLAN_REGISTRATION_MAX_ATTEMPTS,lastError:"delivery_interrupted_after_max_attempts"});
+    expect(retryGuanlanRegistration(db,a.id,"2026-11-02T00:00:00.000Z")).toBe(true);
+    expect(listGuanlanRegistrations(db)[0]!).toMatchObject({status:"pending",attempts:0});
+    db.close();
+  });
+  it("enqueues a legacy account reactivated after active-only backfill", async () => {
+    const {db,service}=fixture();
+    const a=await service.provisionAccount("legacy-disabled","strong account passphrase");
+    service.setDisabled("legacy-disabled",true);
+    db.prepare("DELETE FROM guanlan_registration_outbox WHERE account_id=?").run(a.id);
+    expect(backfillGuanlanRegistrations(db,new Date().toISOString())).toBe(0);
+    expect(listGuanlanRegistrations(db)).toHaveLength(0);
+    service.setDisabled("legacy-disabled",false);
+    expect(listGuanlanRegistrations(db)).toMatchObject([{accountId:a.id,status:"pending",attempts:0}]);
+    db.close();
+  });
   it("validates signed transport config and rejects false success receipts",async()=>{
     expect(()=>createGuanlanRegistrationTransport("http://example.com","x".repeat(32))).toThrow();
     const responses: unknown[]=[{registered:false,accountId:"a"}, {registered:true,accountId:"b"}, {registered:true,accountId:"a"}];
