@@ -46,7 +46,7 @@ export function listGuanlanRegistrations(db: DatabaseSync, accountId?: string): 
 
 export function retryGuanlanRegistration(db: DatabaseSync, accountId: string, now: string): boolean {
   const result = db.prepare(`UPDATE guanlan_registration_outbox SET status='pending', attempts=0, next_attempt_at=?, lease_until=NULL, last_error=NULL, updated_at=?
-    WHERE account_id=? AND status IN ('pending','delivering','failed')
+    WHERE account_id=? AND status='failed'
     AND EXISTS (SELECT 1 FROM accounts a WHERE a.id=account_id AND ${ACTIVE_ACCOUNT})`).run(now, now, accountId);
   return result.changes === 1;
 }
