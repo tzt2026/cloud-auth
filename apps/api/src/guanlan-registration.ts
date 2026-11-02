@@ -29,7 +29,7 @@ export function backfillGuanlanRegistrations(db: DatabaseSync, now: string): num
 /** When admission is revoked, no pending retries can acquire the account. */
 export function withholdGuanlanRegistration(db: DatabaseSync, accountId: string, now: string): void {
   db.prepare(`UPDATE guanlan_registration_outbox SET status='withheld', lease_until=NULL, updated_at=?, last_error='account_inactive'
-    WHERE account_id=? AND status != 'delivered'`).run(now, accountId);
+    WHERE account_id=? AND status NOT IN ('delivered','failed')`).run(now, accountId);
 }
 
 /** Account reactivation schedules another attempt instead of blindly marking it delivered. */
@@ -44,7 +44,7 @@ export function resumeGuanlanRegistration(db: DatabaseSync, accountId: string, n
     SELECT id, 'pending', 0, ?, NULL, NULL, ? FROM accounts WHERE id=?${eligibility}
     ON CONFLICT(account_id) DO UPDATE SET status='pending', attempts=0, next_attempt_at=excluded.next_attempt_at,
       lease_until=NULL, last_error=NULL, updated_at=excluded.updated_at
-    WHERE guanlan_registration_outbox.status IN ('withheld','failed')`).run(now, now, accountId);
+    WHERE guanlan_registration_outbox.status = 'withheld'`).run(now, now, accountId);
 }
 
 export function listGuanlanRegistrations(db: DatabaseSync, accountId?: string): RegistrationRecord[] {
