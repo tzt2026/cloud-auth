@@ -77,8 +77,18 @@ describe("GLN-012 durable Guanlan space registration", () => {
     db.prepare("DELETE FROM guanlan_registration_outbox WHERE account_id=?").run(a.id);
     expect(backfillGuanlanRegistrations(db,new Date().toISOString())).toBe(0);
     expect(listGuanlanRegistrations(db)).toHaveLength(0);
+    service.setAllowed("legacy-disabled",true);
+    expect(listGuanlanRegistrations(db)).toHaveLength(0);
     service.setDisabled("legacy-disabled",false);
     expect(listGuanlanRegistrations(db)).toMatchObject([{accountId:a.id,status:"pending",attempts:0}]);
+
+    const denied=await service.provisionAccount("legacy-denied","strong account passphrase");
+    service.setAllowed("legacy-denied",false);
+    db.prepare("DELETE FROM guanlan_registration_outbox WHERE account_id=?").run(denied.id);
+    service.setDisabled("legacy-denied",false);
+    expect(listGuanlanRegistrations(db)).toHaveLength(1);
+    service.setAllowed("legacy-denied",true);
+    expect(listGuanlanRegistrations(db)).toHaveLength(2);
     db.close();
   });
   it("validates signed transport config and rejects false success receipts",async()=>{
