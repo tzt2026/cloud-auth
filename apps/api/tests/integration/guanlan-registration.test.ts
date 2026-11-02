@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createTestAuth } from "../helpers/auth.js";
-import { backfillGuanlanRegistrations, createGuanlanRegistrationTransport, deliverGuanlanRegistrations, listGuanlanRegistrations, retryGuanlanRegistration } from "../../src/guanlan-registration.js";
+import { backfillGuanlanRegistrations, createGuanlanRegistrationTransport, deliverGuanlanRegistrations, listGuanlanRegistrations, retryGuanlanRegistration, GUANLAN_REGISTRATION_MAX_ATTEMPTS } from "../../src/guanlan-registration.js";
 
 const dirs: string[] = [];
 afterEach(() => dirs.splice(0).forEach(p => rmSync(p, {recursive:true, force:true})));
@@ -38,6 +38,24 @@ describe("GLN-012 durable Guanlan space registration", () => {
     expect((await deliverGuanlanRegistrations(db,{send:async()=>{throw Error("must not deliver");}})).delivered).toBe(0);
     service.setDisabled("alice",false);
     expect(listGuanlanRegistrations(db)[0]!.status).toBe("pending");
+    db.close();
+  });
+  it("stops after the finite automatic retry budget and requires explicit retry", async () => {
+    const {db,service}=fixture();
+    const a=await service.provisionAccount("retry-limit","strong account passphrase");
+    let clock=Date.now();
+    const now=()=>new Date(clock);
+    for(let i=0;i<GUANLAN_REGISTRATION_MAX_ATTEMPTS;i++){
+      const result=await deliverGuanlanRegistrations(db,{send:async()=>false},{now});
+      expect(result.failed).toBe(1);
+      clock+=4_000_000;
+    }
+    expect(listGuanlanRegistrations(db)[0]!.status).toBe("failed");
+    expect(listGuanlanRegistrations(db)[0]!.attempts).toBe(GUANLAN_REGISTRATION_MAX_ATTEMPTS);
+    clock+=4_000_000;
+    expect((await deliverGuanlanRegistrations(db,{send:async()=>{throw Error("terminal failure must not auto-retry");}},{now})).failed).toBe(0);
+    expect(retryGuanlanRegistration(db,a.id,now().toISOString())).toBe(true);
+    expect(listGuanlanRegistrations(db)[0]!).toMatchObject({status:"pending",attempts:0});
     db.close();
   });
   it("validates signed transport config and rejects false success receipts",async()=>{
