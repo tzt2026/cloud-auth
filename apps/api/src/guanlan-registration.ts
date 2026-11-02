@@ -35,7 +35,7 @@ export function withholdGuanlanRegistration(db: DatabaseSync, accountId: string,
 /** Account reactivation schedules another attempt instead of blindly marking it delivered. */
 export function resumeGuanlanRegistration(db: DatabaseSync, accountId: string, now: string): void {
   db.prepare(`INSERT INTO guanlan_registration_outbox(account_id,status,attempts,next_attempt_at,lease_until,last_error,updated_at)
-    SELECT id, 'pending', 0, ?, NULL, NULL, ? FROM accounts WHERE id=? AND ${ACTIVE_ACCOUNT}
+    SELECT id, 'pending', 0, ?, NULL, NULL, ? FROM accounts WHERE id=?
     ON CONFLICT(account_id) DO UPDATE SET status='pending', attempts=0, next_attempt_at=excluded.next_attempt_at,
       lease_until=NULL, last_error=NULL, updated_at=excluded.updated_at
     WHERE guanlan_registration_outbox.status IN ('withheld','failed')`).run(now, now, accountId);
