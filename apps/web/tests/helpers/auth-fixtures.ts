@@ -3,7 +3,16 @@ import type { IssuedCloudSession } from "@uichat-mira/cloud-auth-contracts";
 import type { AuthStore } from "@/lib/auth/store";
 
 export const account = { id: "account-1", username: "pilot" } as const;
-export const expiresAt = "2026-11-01T00:00:00.000Z";
+
+/**
+ * Fixture Cloud Session expiry, anchored an hour ahead of the test run.
+ *
+ * The browser store re-checks the deadline on every `getSessionToken()` call and
+ * drops the persisted session once it passes, so a literal timestamp silently
+ * turns every seeded "signed in" fixture into a signed-out one as real time moves
+ * on. Anchoring it to the run keeps the fixture representing a live session.
+ */
+export const expiresAt = new Date(Date.now() + 60 * 60_000).toISOString();
 
 export function issuedSession(sessionToken: string): IssuedCloudSession {
   return { sessionToken, account, expiresAt };
