@@ -121,7 +121,7 @@
 | G5 | 无"观澜空间是否存在/已注册"判定 | dev 无 outbox 表（`apps/api/migrations/` 仅 001–007）；`guanlan-registration.ts` 只在 PR #130 | 【待确认】以 GLN-012 投影为闸门（见 §6.3） |
 | G6 | 撤销仅阻止未来签发 | `docs/service-credentials-v0.md:252-256` | 【待确认】接受 ≤600s 窗口，或另立在线撤销任务（不在本卡） |
 | G7 | 无 consumer 归属数据 | 全仓库无 `consumer` 产品代码 | 【待确认】minimal 方案不新建归属表（见 §6.2） |
-| G8 | 无内部可信调用凭证 | dev 无 HMAC/introspection | 【拟变更】不新增；容量上沿用设备绑定会话 |
+| G8 | 无内部可信调用凭证 | dev 无 HMAC/introspection | 【拟变更】不新增；原则上沿用设备绑定会话 |
 | G9 | 两端常量靠复制，无共享包 | Guanlan `package.json` 无 contracts 依赖 | 【拟变更】把"字段对齐清单"（§5）作为跨仓库验收项，GLN-014 复核 |
 
 ## 5. 与 Guanlan 验证器待对齐字段清单（交 guanlan-dev / 维护者）
