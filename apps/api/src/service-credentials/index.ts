@@ -16,6 +16,13 @@ export type {
   ServiceCredentialKeyRing,
   ServiceCredentialRetiringKeyMaterial,
 } from "./keyring.js";
+export {
+  GuanlanRegistrationOutboxReadiness,
+} from "./guanlan-space-readiness.js";
+export type {
+  GuanlanSpaceReadiness,
+  GuanlanSpaceStatus,
+} from "./guanlan-space-readiness.js";
 export { ServiceCredentialService } from "./service.js";
 export {
   DEFAULT_SERVICE_CREDENTIAL_TTL_SECONDS,

@@ -10,6 +10,7 @@ import {
   issuedServiceCredentialSchema,
   serviceCredentialErrorEnvelopeSchema,
 } from "@uichat-mira/cloud-auth-contracts";
+import { GuanlanRegistrationOutboxReadiness } from "../../src/service-credentials/guanlan-space-readiness.js";
 import { verifyServiceCredential } from "../../src/service-credentials/index.js";
 import { ServiceCredentialService } from "../../src/service-credentials/service.js";
 import {
@@ -93,6 +94,7 @@ describe("Relay ticket authorization on SQLite", () => {
         resolveRoomOwnership: () =>
           testContext.hostService.resolveRoomOwnership(family.host.relayRoom),
       },
+      new GuanlanRegistrationOutboxReadiness(testContext.db),
     );
 
     for (const [token, role] of [

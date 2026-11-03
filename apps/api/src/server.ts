@@ -12,6 +12,7 @@ import { OAuthRepository } from "./oauth/oauth-repository.js";
 import { OAuthService } from "./oauth/oauth-service.js";
 import { LoginGuard } from "./security/login-guard.js";
 import { PasswordHasher } from "./security/password.js";
+import { GuanlanRegistrationOutboxReadiness } from "./service-credentials/guanlan-space-readiness.js";
 import { createServiceCredentialKeyRing } from "./service-credentials/keyring.js";
 import { ServiceCredentialService } from "./service-credentials/service.js";
 import { openDatabase } from "./storage/database.js";
@@ -49,6 +50,7 @@ const serviceCredentialService = new ServiceCredentialService(
   repository,
   createServiceCredentialKeyRing(config.serviceCredentials),
   hostService,
+  new GuanlanRegistrationOutboxReadiness(db),
 );
 
 const app = buildApp({

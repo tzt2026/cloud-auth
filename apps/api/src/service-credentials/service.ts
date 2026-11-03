@@ -1,5 +1,8 @@
 import {
+  CLOUD_GUANLAN_AUDIENCE,
   CLOUD_RELAY_TRANSPORT_AUDIENCE,
+  GUANLAN_READ_SCOPE,
+  GUANLAN_WRITE_SCOPE,
   RELAY_TRANSPORT_SCOPE,
   SHIYAN_AUTHENTICATE_SCOPE,
   type IssuedServiceCredential,
@@ -10,6 +13,7 @@ import {
 import type { AuthRepository } from "../auth/auth-repository.js";
 import { hashSessionSecret, parseSessionToken } from "../security/session-token.js";
 import { ServiceCredentialRequestError } from "./errors.js";
+import type { GuanlanSpaceReadiness } from "./guanlan-space-readiness.js";
 import type { ServiceCredentialKeyRing } from "./keyring.js";
 import {
   isRelayTicketAuthorized,
@@ -21,10 +25,20 @@ export interface RelayRoomOwnershipResolver {
   resolveRoomOwnership(relayRoom: string): RelayRoomOwnership | null;
 }
 
+/**
+ * The signed scope tuple is derived from the requested set, never copied from
+ * the request: Guanlan read-only stays read-only and write is only added when
+ * the caller asked for it explicitly.
+ */
 function scopeForRequest(request: ServiceCredentialRequest): ServiceCredentialScope[] {
-  return request.audience === CLOUD_RELAY_TRANSPORT_AUDIENCE
-    ? [RELAY_TRANSPORT_SCOPE]
-    : [SHIYAN_AUTHENTICATE_SCOPE];
+  if (request.audience === CLOUD_RELAY_TRANSPORT_AUDIENCE) return [RELAY_TRANSPORT_SCOPE];
+  if (request.audience === CLOUD_GUANLAN_AUDIENCE) {
+    const requested = request.scopes ?? [GUANLAN_READ_SCOPE];
+    return requested.includes(GUANLAN_WRITE_SCOPE)
+      ? [GUANLAN_READ_SCOPE, GUANLAN_WRITE_SCOPE]
+      : [GUANLAN_READ_SCOPE];
+  }
+  return [SHIYAN_AUTHENTICATE_SCOPE];
 }
 
 export class ServiceCredentialService {
@@ -32,6 +46,7 @@ export class ServiceCredentialService {
     private readonly repository: AuthRepository,
     private readonly keyRing: ServiceCredentialKeyRing | null,
     private readonly relayRoomOwnership: RelayRoomOwnershipResolver,
+    private readonly guanlanSpace: GuanlanSpaceReadiness,
   ) {}
 
   issue(token: string, request: ServiceCredentialRequest): IssuedServiceCredential {
@@ -56,6 +71,7 @@ export class ServiceCredentialService {
     const now = new Date();
     const relay =
       request.audience === CLOUD_RELAY_TRANSPORT_AUDIENCE ? request.relay : null;
+    const guanlan = request.audience === CLOUD_GUANLAN_AUDIENCE;
     const issued = this.repository.issueWithinActiveDeviceSession(
       parsed.id,
       hashSessionSecret(parsed.secret),
@@ -80,6 +96,19 @@ export class ServiceCredentialService {
           }
         }
 
+        if (guanlan) {
+          // Fail closed: a disabled/denied account is already rejected by the
+          // surrounding authority check, and a missing or non-delivered GLN-012
+          // registration must not be treated as permission.
+          if (this.guanlanSpace.status(accountId) !== "ready") {
+            throw new ServiceCredentialRequestError(
+              "SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY",
+              409,
+              "The account is not registered for the requested service",
+            );
+          }
+        }
+
         const credential = issueServiceCredential(
           { ...keyRing.signer, now: () => now },
           {
@@ -88,6 +117,9 @@ export class ServiceCredentialService {
             audience: request.audience,
             scope: scopeForRequest(request),
             ...(relay ? { relay } : {}),
+            // The Guanlan consumer is derived from the verified session, never
+            // from the request body. One account is one stable consumer.
+            ...(guanlan ? { consumerId: accountId } : {}),
           },
         );
         return {

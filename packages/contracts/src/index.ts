@@ -47,11 +47,18 @@ export type {
 } from "./oauth.js";
 
 export {
+  CLOUD_GUANLAN_AUDIENCE,
   CLOUD_RELAY_TRANSPORT_AUDIENCE,
   CLOUD_SHIYAN_AUDIENCE,
+  GUANLAN_READ_SCOPE,
+  GUANLAN_WRITE_SCOPE,
   RELAY_TRANSPORT_SCOPE,
   SERVICE_CREDENTIAL_ISSUER,
   SHIYAN_AUTHENTICATE_SCOPE,
+  guanlanConsumerIdSchema,
+  guanlanRequestedScopesSchema,
+  guanlanScopeClaimsSchema,
+  guanlanServiceCredentialClaimsSchema,
   issuedServiceCredentialSchema,
   relayConnectionRoleSchema,
   relayRoomSchema,
@@ -71,6 +78,7 @@ export {
 } from "./service-credential.js";
 
 export type {
+  GuanlanServiceCredentialClaims,
   IssuedServiceCredential,
   RelayConnectionRole,
   RelayServiceCredentialClaims,
