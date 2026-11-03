@@ -1,4 +1,4 @@
-# GLN-013 · 非生产联调前置 Runbook（t23 实测）
+﻿# GLN-013 · 非生产联调前置 Runbook（t23 实测）
 
 本文记录 2026-11-04 在本机把 **非生产 Cloud Auth → 真实隔离 Guanlan 接收端 → `delivered` → 签发 Guanlan
 令牌 → 公网 JWKS** 跑通的完整步骤与实测输出，供 t10（GLN-014）直接复用。
@@ -17,7 +17,7 @@
 | 测试账号 + device-bound 会话 | ✅ 账号 `<8 位前缀>`，设备绑定成功 |
 | 真实 `pending → delivered` | ✅ 隔离 Worker + 真 D1；`attempts=2`（第 1 次因未走代理 8s 超时） |
 | 签发 Guanlan 令牌 | ✅ 200，`aud=mira:cloud-guanlan`、`scope=guanlan.read`、`TTL=300`、`consumer_id == sub` |
-| 公网 JWKS | ✅ 临时隧道 `https://<temporary-host>/.well-known/jwks.json`，其它路径 404 |
+| 公网 JWKS | ✅ 先由临时隧道、终态改为 Cloudflare Pages 静态发布（§5.2），隧道与 8789 代理已关闭 |
 | 销毁 | ✅ 见 §6（DB/私钥/令牌/密码只在 `%TEMP%`，已删） |
 
 ## 1. 起非生产实例（loopback）
@@ -204,6 +204,23 @@ aud=mira:cloud-guanlan consumer_eq_sub=true scope=guanlan.read ttl=300
 - 代价：换址后下游需要重新 deploy 一次 Worker 变量（只改变量，不重建 D1）。因此"隧道是临时设施"这条
   要写进验收边界：它不是生产常驻，也没有可用性承诺。
 
+### 5.2 终态：JWKS 改为静态发布（隧道与代理已退役）
+
+消费方（Guanlan 隔离 Worker）已改为从 **Cloudflare Pages** 读取静态 JWKS：
+`https://mira-auth-jwks-test.pages.dev/.well-known/jwks.json`（只含公钥、无 `d`、`max-age=300`）。
+因此本轮结束后：
+
+- **隧道与 `8789` JWKS-only 代理都已关闭**；公网只剩 Pages 上的公钥副本，本机不再有对外暴露面。
+- `keepalive.ps1` 收窄为只维护 `127.0.0.1:8788`；`current-host.txt` 保留但**仅在需要手工重发布 JWKS 时**
+  作为一次性取数入口（取一次公钥 → 覆盖 Pages → 冒烟）。
+- **独立核对**：Pages 上的 `x` 与本机 `signing.pub.pem` 导出的 `x` 逐字节一致（`pages_matches_local=true`、
+  `kid=gln013-t23-1`、无私有分量），即静态副本确实是本机这把钥匙的公钥，不是别人的。
+- **密钥轮换**：静态副本不会自动更新。轮换流程 = 本机换 key（换 `kid`）→ 导出新 JWKS JSON → 交给消费方覆盖
+  Pages 并 `pages deploy` → 冒烟 `whoami`。若只换 key 不重发布，`/mcp` 会立刻 401（fail closed）。
+  **本轮不轮换**；真要轮换应在 t9 开始前或结束后做，避免联调中途 401。
+- **边界口径**：静态发布的是**公钥**，私钥仍只在本机；这不是产品形态，生产必须用常驻 Cloud Auth 的
+  真实 JWKS 端点。
+
 ## 6. 销毁步骤（跑完就做）
 
 ```powershell
@@ -222,7 +239,7 @@ git -C D:\cloud-auth-wt\gln-013 status --porcelain
 
 ## 7. 残留风险与缺口
 
-1. **JWKS 是临时隧道**：URL 随机、无 SLA、随进程失效；常驻非生产域名/实例需另立工作项。
+1. **JWKS 是静态副本**（Cloudflare Pages，仅公钥）：不会随本机密钥变化自动更新，轮换必须重新发布一次，否则 /mcp 立刻 401（fail closed）；生产必须改用常驻 Cloud Auth 的真实 JWKS 端点。
 2. **代理依赖**：本机 Node `fetch` 默认不走系统代理，投递必须 `--use-env-proxy`；否则表现为
    `delivery_unconfirmed`，容易被误判为接收端故障。
 3. **D1 有测试残留行**：一条真实测试账号空间行，属于隔离环境；未实现自动清理。
