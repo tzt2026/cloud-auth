@@ -229,7 +229,12 @@ git -C D:\cloud-auth-wt\gln-013 status --porcelain
 4. **令牌 TTL 300s**：联调用例必须现取现用。
 5. **投影漂移**：Cloud Auth 已 `delivered` 但 Guanlan 空间后续被拆时，仍可能签出令牌、由资源侧拒绝
    （fail closed，但属"晚失败"）；对账机制是后续工作项，本卡不实现。
-6. **未验证**：Guanlan `/mcp` 是否接受本令牌（t10）；JWKS 轮换/多 kid 行为；生产实例。
+6. **手工 mint 是 V1 临时形态**：`mint.mjs` 用本机会话文件现签，只解决"下游不等人"的联调问题；长期应是
+   服务侧按需签发（服务凭据由调用方服务自己获取/续期），不能把手工 mint 当架构。
+7. **host 变化不另行通知**：双方约定下游在每次验收前先读 `current-host.txt`，再决定是否重 deploy；
+   若 `/mcp` 突然 401，先比对 host 文件与 Worker 变量，再怀疑令牌合同。
+8. **未验证**：JWKS 轮换/多 kid 行为；生产实例。Guanlan `/mcp` 接受度已由 t10 真实部署 Worker 验证
+   （`initialize`/`whoami`/`news_recent` 200、`consumerEqualsAccount=true`）。
 
 ## 8. 证据清单（脱敏）
 
@@ -244,3 +249,7 @@ git -C D:\cloud-auth-wt\gln-013 status --porcelain
 | 01:35 | 签发 | `aud/scope/ttl=300/consumer_eq_sub=True/sha256_12=16d0f84f9b97` |
 | 01:36 | 公网 JWKS | `https://<temporary-host>/.well-known/jwks.json` 200；其它路径 404 |
 | 01:47 | JWKS+签名独立核对 | `jwks_key_matches_local_public_key=true`、`token_signature_valid=true`、`ttl=300` |
+| 02:29 | 脱离子进程看护 | 主动 kill 承载实例的会话 job → 日志 `instance down -> boot` → `instance 200`，同轮 `/health`、公网 JWKS 均 200 |
+| 02:31 | Worker 真实接受（t10，非生产隔离 Worker） | `initialize`/`tools/list`/`whoami`/`news_recent` 均 200；`whoami` 回 `consumerEqualsAccount: true`、`scopes:["guanlan.read"]` |
+| 02:31 | 错误 audience 负例（t10） | Shiyan 令牌（`scope=shiyan:authenticate`）打 Guanlan `/mcp` → `401 invalid_token`（非 503，说明是验证拒绝而非配置缺失） |
+| 02:31 | 跨账户隔离（t10） | 令牌（`5728cbcd…`）读不到合成账户 `33333333…` 的文章；`decide` → `guanlan_decision_not_available`（不泄露存在性）；D1 零写入 |
