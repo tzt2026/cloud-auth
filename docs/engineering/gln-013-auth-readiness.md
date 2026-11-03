@@ -4,7 +4,9 @@
 - 仓库基线：`uichat-mira/cloud-auth` `origin/dev` `481767ffe6faa9186693dad90ce4994980474517`
 - Guanlan 对照基线：`uichat-mira/cloud-mcp-guanlan` `origin/dev` `fbaecaa16b535a19576c9db651a55739b777e2a9`
 - 规范依据：组织 `AGENTS.md`（Policy `2026-09-16.2`）、`cloud-auth/AGENTS.md`、Issue #129（GLN-013 契约）、Issue #128（GLN-012 契约）、PR #130（GLN-012 open，未入 dev）
-- 阅读方式：本文所有断言都带代码位置；标 **【事实】** 表示已在上述基线代码中核实，标 **【拟变更】** 表示 GLN-013 的建议，尚未实现；标 **【待确认】** 表示必须由 Guanlan 侧或维护者裁决。
+- 阅读方式：本文所有断言都带代码位置；标 **【事实】** 表示已在上述基线代码中核实；标 **【拟变更】** 表示 GLN-013 的实现方案（实现结果见 [gln-013-guanlan-credential.md](gln-013-guanlan-credential.md)）；标 **【待确认】** 表示已核实、但取值或语义须由 Guanlan 侧/维护者裁决；标 **【未验证】** 表示缺真实环境、本机无法核实，不得当作已成立。
+
+> 本文是 GLN-013 的**前置盘点**，部分结论随后被实现取代（audience/scope/consumer_id/闸门已按维护者裁决实现）。实现与证据以 [gln-013-guanlan-credential.md](gln-013-guanlan-credential.md) 为准；本文保留原始缺口判断以便追溯。
 
 > 本文不宣称任何 Guanlan 联调已完成。仓库内没有真实签发给 Guanlan 的令牌，也没有 Guanlan 部署环境；真实链路验收属于 GLN-014。
 
@@ -13,11 +15,12 @@
 1. **【事实】** Cloud Auth 已有一套完整的"服务凭证"签发机制：Ed25519 JWT、显式 audience、最小 scope、设备绑定、单一签发事务、公开 JWKS、离线验证。它当前只支持 `mira:cloud-shiyan` 与 `mira:cloud-relay-transport` 两个 audience，两者在 schema 与验证器层面互不通用。
 2. **【事实】** 仓库里没有独立的 "Relay ticket" 或 "Shiyan 凭证" 实现——它们是同一个 service credential 的两个 audience 变体；Relay 变体额外带 `relay.room/role` 传输上下文与准入判断。
 3. **【事实】** 现有 schema 是**封闭枚举**：audience 是 `z.enum` 两值、scope 是 `z.tuple` 单值、claims 是 `.strict()`。把 Guanlan 塞进现有 audience 是**契约变更**，不是加个字符串。
-4. **【事实】** Cloud Auth **完全没有 consumer 概念**：全仓库 `consumer` 只出现在一处测试注释。Guanlan 验证器却强制要求 `consumer_id` claim（默认名），缺失即 401。
+4. **【事实】** Cloud Auth 没有可复用的 consumer **归属模型**：`apps/api/src` 与 `packages/contracts/src` 中没有 `consumer` 表、字段或签发分支；`consumer` 一词只出现在产品注释（`apps/web/src/lib/auth/store.ts:30`）、测试注释（`apps/api/tests/unit/service-credential-keyring.test.ts:128`）与文档中。既有 `docs/service-credentials-v0.md` 的「Consumer checklist」小节（`docs/service-credentials-v0.md:279` 起）已经写明"消费者应共享 canonical literals 并显式配置 iss/aud/JWKS"——那里的 consumer 指**验证方服务**，不是 Guanlan 的 `consumer_id` 主体。因此这条缺口是"沿用既有验证方口径 + 新增一个消费者主体 claim"，不是重新设计验证模型。Guanlan 验证器强制要求 `consumer_id` claim（默认名），缺失即 401。
 5. **【事实】** dev 上**不存在**服务间可信调用凭据（无 HMAC、无内部 token、无 introspection）。唯一的签发可信上下文是"已验证、且绑定未撤销设备的 Cloud Session"，它在 `BEGIN IMMEDIATE` 事务内复核。
 6. **【事实】** 撤销只阻止**未来签发**。已签发 token 无 `jti`、无吊销表、无在线内省，只能等 `exp`（上限 600s）。Guanlan 侧另有 5s 时钟容差，实际最长多 5s。
 7. **【事实】** Guanlan 不依赖 `@uichat-mira/cloud-auth-contracts`：它自带常量并直接用 `jose` 校验。两端靠"值对齐"，没有任何编译期共享，天然会漂移。
 8. **【拟变更】** GLN-013 是"扩一个 audience + 一个 claim + 一组 scope"，不是新凭证体系。真正的新东西是 **consumer 归属语义** 与 **观澜空间可用性闸门**，这两项都跨仓库，必须裁决。
+9. **【未验证】** 以下事项缺真实环境，本机/本仓无法核实，不能当作已成立：Guanlan 真实 `/mcp` 端点是否存在；Guanlan 能否取回本仓 JWKS 并按 300s 缓存/轮换；真实 D1 中 `guanlan_accounts`/`guanlan_consumers` 是否已有行；本仓签出的令牌是否被真实 Guanlan 接受。非生产环境准备见 [gln-013-nonprod-environment.md](gln-013-nonprod-environment.md)。
 
 ## 2. 现有凭证类型盘点
 
