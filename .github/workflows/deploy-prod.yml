@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Build exact production image
         run: |
@@ -28,7 +28,7 @@ jobs:
           gzip -t mira-cloud-auth-prod-image.tar.gz
 
       - name: Prepare isolated production directory
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -41,7 +41,7 @@ jobs:
             chmod 700 /opt/cloud-auth/data /opt/cloud-auth/backups
 
       - name: Upload production bundle
-        uses: appleboy/scp-action@v1
+        uses: appleboy/scp-action@ff85246acaad7bdce478db94a363cd2bf7c90345 # v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
@@ -52,7 +52,7 @@ jobs:
           overwrite: true
 
       - name: Deploy, benchmark and local smoke
-        uses: appleboy/ssh-action@v1
+        uses: appleboy/ssh-action@0ff4204d59e8e51228ff73bce53f80d53301dee2 # v1
         env:
           DEPLOY_SHA: ${{ github.sha }}
         with:

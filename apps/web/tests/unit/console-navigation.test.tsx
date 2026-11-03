@@ -134,6 +134,18 @@ describe("console section navigation", () => {
     expect(screen.queryByRole("button", { name: "退出登录" })).not.toBeInTheDocument();
   });
 
+  it("leaves Escape outside the account menu to the rest of the page", async () => {
+    mountConsole({ path: "/account", status: "authenticated" });
+    const trigger = await screen.findByRole("button", { name: "账户菜单" });
+
+    fireEvent.click(trigger);
+    // Another overlay owns Escape while focus is elsewhere; the account menu
+    // must not swallow the key or steal focus back to its trigger.
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(trigger).not.toHaveFocus();
+  });
+
   it.each(["unauthenticated", "unavailable", "idle", "restoring"] as const)(
     "never offers section links while %s",
     async (status) => {

@@ -22,8 +22,33 @@ export function SessionBlock() {
         setOpen(false);
       }
     }
+    // Escape and focus leaving the block are handled at the document level for
+    // the same reason as the outside click: the container stays a plain layout
+    // element instead of carrying interactive handlers on a `div`.
+    //
+    // Escape only belongs to this menu when it owns focus, so a dialog or menu
+    // opened elsewhere on the page keeps its own handling instead of being
+    // swallowed here.
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      if (!(event.target instanceof Node) || !rootRef.current?.contains(event.target)) return;
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+    }
+    function onFocusIn(event: FocusEvent) {
+      if (event.target instanceof Node && !rootRef.current?.contains(event.target)) {
+        setOpen(false);
+      }
+    }
     document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("focusin", onFocusIn);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("focusin", onFocusIn);
+    };
   }, [open]);
 
   async function handleLogout() {
@@ -34,19 +59,7 @@ export function SessionBlock() {
   }
 
   return (
-    <div
-      className="console-account"
-      ref={rootRef}
-      onKeyDown={(event) => {
-        if (event.key !== "Escape" || !open) return;
-        event.preventDefault();
-        setOpen(false);
-        triggerRef.current?.focus();
-      }}
-      onBlur={(event) => {
-        if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
-      }}
-    >
+    <div className="console-account" ref={rootRef}>
       <button
         ref={triggerRef}
         type="button"

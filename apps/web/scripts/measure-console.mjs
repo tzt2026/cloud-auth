@@ -56,7 +56,7 @@ const measure = () => {
   const parseColor = (value) => {
     const m = /rgba?\(([^)]+)\)/.exec(value);
     if (!m) return null;
-    const parts = m[1].split(",").map((p) => parseFloat(p.trim()));
+    const parts = m[1].split(",").map((p) => Number.parseFloat(p.trim()));
     return { r: parts[0], g: parts[1], b: parts[2], a: parts.length > 3 ? parts[3] : 1 };
   };
   const blend = (top, bottom) => ({
@@ -104,7 +104,7 @@ const measure = () => {
     const el = node.parentElement;
     if (!el || !visible(el)) continue;
     const s = getComputedStyle(el);
-    const size = Math.round(parseFloat(s.fontSize) * 10) / 10;
+    const size = Math.round(Number.parseFloat(s.fontSize) * 10) / 10;
     histogram[size] = (histogram[size] || 0) + 1;
     const fg = parseColor(s.color);
     if (!fg) continue;

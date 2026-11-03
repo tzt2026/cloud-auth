@@ -45,12 +45,22 @@ export interface CreateHttpTransportOptions {
   hooks: TransportHooks;
 }
 
+/**
+ * Equivalent to `.replace(/\/+$/, "")`, written as a scan from the end so the
+ * URL prefix is trimmed without the regex engine backtracking over the run.
+ */
+function stripTrailingSlashes(baseUrl: string): string {
+  let end = baseUrl.length;
+  while (end > 0 && baseUrl[end - 1] === "/") end -= 1;
+  return baseUrl.slice(0, end);
+}
+
 export function createHttpTransport({
   baseUrl = "",
   fetch: fetchOption,
   hooks,
 }: CreateHttpTransportOptions): HttpTransport {
-  const origin = baseUrl.replace(/\/+$/, "");
+  const origin = stripTrailingSlashes(baseUrl);
   const fetchImpl = fetchOption ?? globalThis.fetch.bind(globalThis);
 
   async function send(path: string, init: RequestInit): Promise<Response> {

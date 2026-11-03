@@ -25,6 +25,19 @@ export function openDatabase(options: OpenDatabaseOptions): DatabaseSync {
   return db;
 }
 
+/**
+ * Equivalent to `/^\d+.*\.sql$/`, which SonarCloud flagged as super-linear
+ * because `\d+` and `.*` can both consume digits. The leading digit run is
+ * walked once here and the rest is a suffix check, with the original pattern's
+ * rejection of line terminators (`.` does not match them) kept explicit.
+ */
+function isMigrationFileName(name: string): boolean {
+  if (/[\n\r\u2028\u2029]/.test(name)) return false;
+  const firstNonDigit = name.search(/\D/);
+  const digitCount = firstNonDigit === -1 ? name.length : firstNonDigit;
+  return digitCount > 0 && name.endsWith(".sql");
+}
+
 function applyMigrations(db: DatabaseSync, migrationsPath: string): void {
   const applied = new Set(
     db.prepare("SELECT version FROM schema_migrations ORDER BY version")
@@ -32,9 +45,7 @@ function applyMigrations(db: DatabaseSync, migrationsPath: string): void {
       .map((row) => String(row.version)),
   );
 
-  const migrations = readdirSync(migrationsPath)
-    .filter((name) => /^\d+.*\.sql$/.test(name))
-    .sort();
+  const migrations = readdirSync(migrationsPath).filter(isMigrationFileName).sort();
 
   for (const migration of migrations) {
     if (applied.has(migration)) continue;

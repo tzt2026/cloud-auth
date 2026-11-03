@@ -71,13 +71,24 @@ export class PasswordHasher {
   }
 }
 
+/**
+ * Base64 padding is only ever trailing, so trimming it by scanning from the end
+ * is equivalent to `.replace(/=+$/, "")` — the `=+` there is the overlapping
+ * quantifier SonarCloud flags as super-linear.
+ */
+function stripBase64Padding(encoded: string): string {
+  let end = encoded.length;
+  while (end > 0 && encoded[end - 1] === "=") end -= 1;
+  return encoded.slice(0, end);
+}
+
 function encodePasswordHash(policy: Argon2Policy, salt: Buffer, digest: Buffer): string {
   return [
     "$argon2id",
     "$v=19",
     `$m=${policy.memoryKiB},t=${policy.passes},p=${policy.parallelism}`,
-    `$${salt.toString("base64").replace(/=+$/, "")}`,
-    `$${digest.toString("base64").replace(/=+$/, "")}`,
+    `$${stripBase64Padding(salt.toString("base64"))}`,
+    `$${stripBase64Padding(digest.toString("base64"))}`,
   ].join("");
 }
 
