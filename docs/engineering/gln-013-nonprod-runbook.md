@@ -1,4 +1,4 @@
-# GLN-013 · 非生产联调前置 Runbook（t23 实测）
+﻿# GLN-013 · 非生产联调前置 Runbook（t23 实测）
 
 本文记录 2026-11-04 在本机把 **非生产 Cloud Auth → 真实隔离 Guanlan 接收端 → `delivered` → 签发 Guanlan
 令牌 → 公网 JWKS** 跑通的完整步骤与实测输出，供 t10（GLN-014）直接复用。
@@ -127,26 +127,41 @@ Worker 取不到 `127.0.0.1`，需要公网 https。做法是**两层**：
 node "$TMPDIR/gln013-t23/jwks-proxy.mjs"        # listens 127.0.0.1:8789
 
 # 5.2 临时隧道（无账号，URL 随机、进程退出即失效）
-ssh -o StrictHostKeyChecking=no -R 80:127.0.0.1:8789 nokey@localhost.run
+ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=20 -R 80:127.0.0.1:8789 nokey@localhost.run
 # → https://<random>.lhr.life
 ```
 
-实测：
+实测（本次实际 URL，`2026-11-04 01:47` 有效；隧道重连会换 host）：
 
 ```text
-GET https://<random>.lhr.life/.well-known/jwks.json
+GET https://1523cdc0bd8ab6.lhr.life/.well-known/jwks.json
 200 application/json
 {"keys":[{"kty":"OKP","crv":"Ed25519","use":"sig","alg":"EdDSA","kid":"gln013-t23-1","x":"<公钥>"}]}
 
-GET  https://<random>.lhr.life/v1/service-credentials → 404
-GET  https://<random>.lhr.life/                      → 404
+GET  https://1523cdc0bd8ab6.lhr.life/v1/service-credentials → 404
+GET  https://1523cdc0bd8ab6.lhr.life/                      → 404
 ```
 
-把 `https://<random>.lhr.life/.well-known/jwks.json` 交给 guanlan-dev 配成 `CLOUD_AUTH_JWKS_URL`，
+独立核对（不依赖本仓代码）：把隧道返回的 JWKS 与本地公钥对比，并对令牌原文做 Ed25519 验签：
+
+```text
+jwks_key_matches_local_public_key=true token_signature_valid=true kid=gln013-t23-1
+aud=mira:cloud-guanlan consumer_eq_sub=true scope=guanlan.read ttl=300
+```
+
+把 `https://<host>/.well-known/jwks.json` 交给 guanlan-dev 配成 `CLOUD_AUTH_JWKS_URL`，
 `CLOUD_AUTH_ISSUER=mira:cloud-auth` 后重新 deploy（不必重建 D1）。
 
-**有效期与关闭**：隧道随 SSH 进程结束而失效；JWKS 代理随 node 进程结束。两者都不是常驻服务。
-关闭后 Worker 的 JWKS 取回会失败 → 一律 401（fail closed，不会误放行）。
+隧道方案对比（本机实测）：
+
+| 方案 | 结果 |
+| --- | --- |
+| `cloudflared tunnel --url`（quick tunnel） | ✗ `POST https://api.trycloudflare.com/tunnel` 8–15s 超时（直连与走本机代理都失败），无法取得 host |
+| `ssh -R` → localhost.run | ✓ 可用；**重连会换 host**，需重新配置 `CLOUD_AUTH_JWKS_URL` |
+| `ssh -p 443 -R0` → pinggy.io | 连接建立但未在非交互会话中打印 host，未采用 |
+
+**有效期与关闭**：隧道随 SSH 进程结束（或服务端重连）而失效/换址；JWKS 代理随 node 进程结束。两者都不是
+常驻服务。关闭后 Worker 的 JWKS 取回会失败 → 一律 401（fail closed，不会误放行）。
 
 ## 6. 销毁步骤（跑完就做）
 
@@ -186,4 +201,5 @@ git -C D:\cloud-auth-wt\gln-013 status --porcelain
 | 01:32 | 投递第 2 次（代理） | `{"delivered":1,"failed":0,"pending":0}` |
 | 01:32 | 闸门解除 | `status=delivered, attempts=2, lastError=null` |
 | 01:35 | 签发 | `aud/scope/ttl=300/consumer_eq_sub=True/sha256_12=16d0f84f9b97` |
-| 01:36 | 公网 JWKS | `https://<random>.lhr.life/.well-known/jwks.json` 200；其它路径 404 |
+| 01:36 | 公网 JWKS | `https://1523cdc0bd8ab6.lhr.life/.well-known/jwks.json` 200；其它路径 404 |
+| 01:47 | JWKS+签名独立核对 | `jwks_key_matches_local_public_key=true`、`token_signature_valid=true`、`ttl=300` |
