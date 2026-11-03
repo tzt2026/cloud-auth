@@ -1,4 +1,4 @@
-﻿# GLN-013 · 非生产联调前置 Runbook（t23 实测）
+# GLN-013 · 非生产联调前置 Runbook（t23 实测）
 
 本文记录 2026-11-04 在本机把 **非生产 Cloud Auth → 真实隔离 Guanlan 接收端 → `delivered` → 签发 Guanlan
 令牌 → 公网 JWKS** 跑通的完整步骤与实测输出，供 t10（GLN-014）直接复用。
@@ -17,7 +17,7 @@
 | 测试账号 + device-bound 会话 | ✅ 账号 `<8 位前缀>`，设备绑定成功 |
 | 真实 `pending → delivered` | ✅ 隔离 Worker + 真 D1；`attempts=2`（第 1 次因未走代理 8s 超时） |
 | 签发 Guanlan 令牌 | ✅ 200，`aud=mira:cloud-guanlan`、`scope=guanlan.read`、`TTL=300`、`consumer_id == sub` |
-| 公网 JWKS | ✅ 临时隧道 `https://<随机>.lhr.life/.well-known/jwks.json`，其它路径 404 |
+| 公网 JWKS | ✅ 临时隧道 `https://<temporary-host>/.well-known/jwks.json`，其它路径 404 |
 | 销毁 | ✅ 见 §6（DB/私钥/令牌/密码只在 `%TEMP%`，已删） |
 
 ## 1. 起非生产实例（loopback）
@@ -114,6 +114,11 @@ sha256_12=16d0f84f9b97  expiresAt=2026-11-03T17:37:31.000Z
 
 ## 5. 公网 JWKS（只暴露公钥路径）
 
+> ⚠️ **本文所有 `https://<temporary-host>` 都是占位符，刻意不保留真实主机名。**
+> 当时的隧道域名（`*.lhr.life`）在隧道释放后会被回收，可能被第三方重新绑定；把它写进文档会让后来者
+> 照抄到别人的域名上（无论是取公钥还是误判"隧道还活着"）。复现时请自己新开隧道、用新拿到的 host，
+> **不要复用任何历史 host**。
+
 Worker 取不到 `127.0.0.1`，需要公网 https。做法是**两层**：
 
 1. **JWKS-only 代理**（本机 `8789`）：只对 `GET /.well-known/jwks.json` 反代到 `8788`，其余一律 `404`。
@@ -128,18 +133,18 @@ node "$TMPDIR/gln013-t23/jwks-proxy.mjs"        # listens 127.0.0.1:8789
 
 # 5.2 临时隧道（无账号，URL 随机、进程退出即失效）
 ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=20 -R 80:127.0.0.1:8789 nokey@localhost.run
-# → https://<random>.lhr.life
+# → https://<temporary-host>
 ```
 
-实测（本次实际 URL，`2026-11-04 01:47` 有效；隧道重连会换 host）：
+实测（隧道重连会换 host；**当时的具体 host 已从文档移除，禁止复用**，见上方警告）：
 
 ```text
-GET https://1523cdc0bd8ab6.lhr.life/.well-known/jwks.json
+GET https://<temporary-host>/.well-known/jwks.json
 200 application/json
 {"keys":[{"kty":"OKP","crv":"Ed25519","use":"sig","alg":"EdDSA","kid":"gln013-t23-1","x":"<公钥>"}]}
 
-GET  https://1523cdc0bd8ab6.lhr.life/v1/service-credentials → 404
-GET  https://1523cdc0bd8ab6.lhr.life/                      → 404
+GET  https://<temporary-host>/v1/service-credentials → 404
+GET  https://<temporary-host>/                      → 404
 ```
 
 独立核对（不依赖本仓代码）：把隧道返回的 JWKS 与本地公钥对比，并对令牌原文做 Ed25519 验签：
@@ -201,5 +206,5 @@ git -C D:\cloud-auth-wt\gln-013 status --porcelain
 | 01:32 | 投递第 2 次（代理） | `{"delivered":1,"failed":0,"pending":0}` |
 | 01:32 | 闸门解除 | `status=delivered, attempts=2, lastError=null` |
 | 01:35 | 签发 | `aud/scope/ttl=300/consumer_eq_sub=True/sha256_12=16d0f84f9b97` |
-| 01:36 | 公网 JWKS | `https://1523cdc0bd8ab6.lhr.life/.well-known/jwks.json` 200；其它路径 404 |
+| 01:36 | 公网 JWKS | `https://<temporary-host>/.well-known/jwks.json` 200；其它路径 404 |
 | 01:47 | JWKS+签名独立核对 | `jwks_key_matches_local_public_key=true`、`token_signature_valid=true`、`ttl=300` |

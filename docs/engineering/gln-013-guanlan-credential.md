@@ -150,6 +150,7 @@ Cloud Auth 只读该投影：不创建 Guanlan 账号/消费者行，不存新�
 命令与结果（本机，Node `v24.9.0`，pnpm `10.34.7`）：
 
 ```text
+pnpm --filter @uichat-mira/cloud-auth-contracts run build   # 前置：apps/api 通过 dist 消费 contracts，跳过会跑旧 schema（假失败）
 node node_modules/typescript/bin/tsc --noEmit        # apps/api，通过
 node node_modules/vitest/vitest.mjs run tests/unit/service-credential-guanlan.test.ts \
   tests/contract/service-credential-guanlan.test.ts \
