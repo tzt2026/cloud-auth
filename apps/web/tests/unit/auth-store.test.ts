@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CloudSession } from "@uichat-mira/cloud-auth-contracts";
 import type { CloudAuthClient } from "@/lib/auth/client";
 import { CloudAuthError, createAuthFailure } from "@/lib/auth/errors";
@@ -129,6 +129,63 @@ describe("auth store", () => {
 
     expectUnavailableState(store);
     expect(storage.load()).toEqual(stored);
+  });
+
+  it("treats a locally expired session as signed out instead of handing out its token", async () => {
+    // The store enforces the deadline itself, so an already-expired credential
+    // must never reach a privileged request. This is the behaviour that a
+    // literal fixture timestamp silently violated once real time passed it.
+    //
+    // Start from a genuinely signed-in store, then let the deadline lapse: when
+    // `account`/`expiresAt` are already `null` at creation, asserting them
+    // afterwards would only restate the initial state and prove nothing.
+    const storage = createMemoryStorage();
+    const store = createAuthStore({ client: createClient(), storage });
+    await store.getState().login("pilot", "correct horse battery staple");
+    expect(store.getState()).toMatchObject({ status: "authenticated", account, expiresAt });
+
+    storage.save({
+      sessionToken: "expired-token",
+      expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    });
+
+    expect(store.getState().getSessionToken()).toBeNull();
+    expect(storage.load()).toBeNull();
+    expect(store.getState()).toMatchObject({
+      status: "unauthenticated",
+      account: null,
+      expiresAt: null,
+      failure: { kind: "reauth_required" },
+    });
+  });
+
+  it("rejects a credential the moment its deadline is reached", () => {
+    // The guard is `<=`, so the deadline itself is already too late. Pin that
+    // edge so a later `<` refactor cannot quietly hand out the last token.
+    const deadline = new Date(Date.now() - 30 * 60_000).toISOString();
+    const storage = createMemoryStorage({ sessionToken: "boundary-token", expiresAt: deadline });
+    const store = createAuthStore({ client: createClient(), storage });
+
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(deadline));
+      expect(store.getState().getSessionToken()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(storage.load()).toBeNull();
+    expect(store.getState()).toMatchObject({
+      status: "unauthenticated",
+      failure: { kind: "reauth_required" },
+    });
+  });
+
+  it("keeps returning the token while the session is still live", () => {
+    const storage = createMemoryStorage({ sessionToken: "live-token", expiresAt });
+    const store = createAuthStore({ client: createClient(), storage });
+
+    expect(store.getState().getSessionToken()).toBe("live-token");
+    expect(storage.load()).toEqual({ sessionToken: "live-token", expiresAt });
   });
 
   it("rotates the stored token after renewal", async () => {
