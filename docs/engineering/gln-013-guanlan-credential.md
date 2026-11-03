@@ -1,4 +1,4 @@
-# GLN-013 · Cloud Auth 为 Guanlan 签发内部消费者凭证
+﻿# GLN-013 · Cloud Auth 为 Guanlan 签发内部消费者凭证
 
 > 任务契约：Issue [#129](https://github.com/uichat-mira/cloud-auth/issues/129)（GLN-013）。
 > 分支：`feat/gln-013-guanlan-consumer-credential`，基线 `origin/dev` = `481767f`。
@@ -148,7 +148,7 @@ node node_modules/vitest/vitest.mjs run tests/unit/service-credential-guanlan.te
 # Test Files 3 passed (3) / Tests 20 passed (20)
 
 pnpm run check   # 仓库根：typecheck + 全量 test
-# api: 41 files / 190 tests passed；web: 12 files / 136 tests passed
+# api: 43 files / 201 tests passed；web: 12 files / 136 tests passed
 ```
 
 `pnpm run check` 的完整输出保留在本机 `check-output.log`（不提交，未进入版本库）。

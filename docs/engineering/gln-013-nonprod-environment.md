@@ -140,7 +140,7 @@ POST /v1/service-credentials {"audience":"mira:cloud-guanlan","consumer_id":"oth
 
 即：签名链路本身可用（Shiyan 已签出），Guanlan 令牌被**空间闸门**挡住，客户端自报 consumer 被严格请求
 schema 拒绝。Guanlan 令牌的字段正确性由 T1/T2/T3 覆盖（`tests/unit|contract|integration` 三个
-`*guanlan*` 文件，21 条用例）；其中一条 T3 用 `dev` 自己的投递状态机把账号从 `pending` 推进到
+`*guanlan*` 文件，22 条用例）；其中一条 T3 用 `dev` 自己的投递状态机把账号从 `pending` 推进到
 `delivered`（transport 注入、不走网络），其余闸门负例直接构造 outbox 行——两者都不是真实投递。
 
 ## 4. 闸门与 `pending → delivered`
