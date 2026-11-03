@@ -1,9 +1,105 @@
-import { generateKeyPairSync } from "node:crypto";
+import { createPublicKey, generateKeyPairSync, type JsonWebKey, type KeyObject } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { DatabaseSync } from "node:sqlite";
+import {
+  CLOUD_GUANLAN_AUDIENCE,
+  CLOUD_RELAY_TRANSPORT_AUDIENCE,
+  CLOUD_SHIYAN_AUDIENCE,
+  SERVICE_CREDENTIAL_ISSUER,
+} from "@uichat-mira/cloud-auth-contracts";
 import type { ServiceCredentialKeyMaterialConfig } from "../../src/service-credentials/keyring.js";
-import { createTestOAuthContext, type TestOAuthContext } from "./oauth.js";
+import type { ServiceCredentialVerifierConfig } from "../../src/service-credentials/index.js";
+import { createFirstPartySession, createTestOAuthContext, type TestOAuthContext } from "./oauth.js";
 
 export type TestServiceCredentialContext = TestOAuthContext;
+
+export const TEST_ACCOUNT_PASSWORD = "correct horse battery staple";
+
+const isolatedDirectories: string[] = [];
+
+/** A throwaway SQLite database + app instance, removed by `disposeIsolatedContexts`. */
+export function createIsolatedServiceCredentialContext(
+  prefix = "mira-guanlan-credential-",
+): TestServiceCredentialContext {
+  const dir = mkdtempSync(join(tmpdir(), prefix));
+  isolatedDirectories.push(dir);
+  return createTestServiceCredentialContext(join(dir, "auth.sqlite"));
+}
+
+export function disposeIsolatedServiceCredentialContexts(): void {
+  for (const dir of isolatedDirectories.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** Provisions the account and returns a first-party device-bound Cloud Session. */
+export async function provisionedSession(
+  context: TestServiceCredentialContext,
+  username = "alice",
+) {
+  await context.service.provisionAccount(username, TEST_ACCOUNT_PASSWORD);
+  return createFirstPartySession(context, { username, password: TEST_ACCOUNT_PASSWORD });
+}
+
+export async function issueServiceCredential(
+  context: TestServiceCredentialContext,
+  token: string,
+  body: unknown,
+) {
+  return context.app.inject({
+    method: "POST",
+    url: "/v1/service-credentials",
+    headers: { authorization: `Bearer ${token}` },
+    payload: body as Record<string, unknown>,
+  });
+}
+
+/** Public keys the issuer advertises, shaped for offline verification. */
+export function trustedServiceCredentialKeys(
+  context: TestServiceCredentialContext,
+): Map<string, KeyObject> {
+  const ring = context.keyRing;
+  if (!ring) throw new Error("Expected a configured key ring");
+  return new Map(
+    ring.jwks.keys.map((jwk) => [
+      jwk.kid,
+      createPublicKey({ key: jwk as JsonWebKey, format: "jwk" }),
+    ]),
+  );
+}
+
+export function guanlanVerifier(
+  context: TestServiceCredentialContext,
+): ServiceCredentialVerifierConfig {
+  return {
+    issuer: SERVICE_CREDENTIAL_ISSUER,
+    audience: CLOUD_GUANLAN_AUDIENCE,
+    publicKeys: trustedServiceCredentialKeys(context),
+  };
+}
+
+export function shiyanVerifier(
+  context: TestServiceCredentialContext,
+): ServiceCredentialVerifierConfig {
+  return {
+    issuer: SERVICE_CREDENTIAL_ISSUER,
+    audience: CLOUD_SHIYAN_AUDIENCE,
+    publicKeys: trustedServiceCredentialKeys(context),
+  };
+}
+
+export function relayVerifier(
+  context: TestServiceCredentialContext,
+): ServiceCredentialVerifierConfig {
+  return {
+    issuer: SERVICE_CREDENTIAL_ISSUER,
+    audience: CLOUD_RELAY_TRANSPORT_AUDIENCE,
+    publicKeys: trustedServiceCredentialKeys(context),
+    expectedRelay: { room: "room-7f3a", role: "client" },
+  };
+}
 
 export function createTestServiceCredentialKeyMaterial(
   overrides: Partial<ServiceCredentialKeyMaterialConfig> = {},

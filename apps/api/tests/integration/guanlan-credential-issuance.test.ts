@@ -1,77 +1,26 @@
-import { createPublicKey, type JsonWebKey, type KeyObject } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   CLOUD_GUANLAN_AUDIENCE,
   GUANLAN_READ_SCOPE,
   GUANLAN_WRITE_SCOPE,
-  SERVICE_CREDENTIAL_ISSUER,
   issuedServiceCredentialSchema,
   serviceCredentialErrorEnvelopeSchema,
 } from "@uichat-mira/cloud-auth-contracts";
 import { parseSessionToken } from "../../src/security/session-token.js";
 import { deliverGuanlanRegistrations } from "../../src/guanlan-registration.js";
+import { verifyServiceCredential } from "../../src/service-credentials/index.js";
 import {
-  verifyServiceCredential,
-  type ServiceCredentialVerifierConfig,
-} from "../../src/service-credentials/index.js";
-import { createFirstPartySession } from "../helpers/oauth.js";
-import {
-  createTestServiceCredentialContext,
+  createIsolatedServiceCredentialContext as createContext,
+  disposeIsolatedServiceCredentialContexts,
+  guanlanVerifier,
+  issueServiceCredential as issue,
+  provisionedSession,
   setGuanlanRegistrationStatus,
   type GuanlanRegistrationStatus,
   type TestServiceCredentialContext,
 } from "../helpers/service-credential.js";
 
-const password = "correct horse battery staple";
-const cleanup: string[] = [];
-
-afterEach(() => {
-  for (const path of cleanup.splice(0)) rmSync(path, { recursive: true, force: true });
-});
-
-function createContext(): TestServiceCredentialContext {
-  const dir = mkdtempSync(join(tmpdir(), "mira-guanlan-issuance-"));
-  cleanup.push(dir);
-  return createTestServiceCredentialContext(join(dir, "auth.sqlite"));
-}
-
-async function provisionedSession(
-  context: TestServiceCredentialContext,
-  username = "alice",
-) {
-  await context.service.provisionAccount(username, password);
-  return createFirstPartySession(context, { username, password });
-}
-
-async function issue(context: TestServiceCredentialContext, token: string, body: unknown) {
-  return context.app.inject({
-    method: "POST",
-    url: "/v1/service-credentials",
-    headers: { authorization: `Bearer ${token}` },
-    payload: body as Record<string, unknown>,
-  });
-}
-
-function guanlanVerifier(
-  context: TestServiceCredentialContext,
-): ServiceCredentialVerifierConfig {
-  const ring = context.keyRing;
-  if (!ring) throw new Error("Expected a configured key ring");
-  const publicKeys = new Map<string, KeyObject>(
-    ring.jwks.keys.map((jwk) => [
-      jwk.kid,
-      createPublicKey({ key: jwk as JsonWebKey, format: "jwk" }),
-    ]),
-  );
-  return {
-    issuer: SERVICE_CREDENTIAL_ISSUER,
-    audience: CLOUD_GUANLAN_AUDIENCE,
-    publicKeys,
-  };
-}
+afterEach(disposeIsolatedServiceCredentialContexts);
 
 async function close(context: TestServiceCredentialContext): Promise<void> {
   context.db.close();
