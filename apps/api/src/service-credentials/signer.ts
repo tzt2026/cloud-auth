@@ -33,6 +33,12 @@ export interface IssueServiceCredentialInput {
   audience: ServiceCredentialAudience;
   scope: readonly ServiceCredentialScope[];
   relay?: RelayTicketContext;
+  /**
+   * Stable Guanlan consumer identity, derived server-side from the verified
+   * Cloud Session. Required for the Guanlan audience and rejected for others
+   * by the canonical claims schema.
+   */
+  consumerId?: string;
 }
 
 function resolvePrivateKey(input: Ed25519PrivateKeyInput): KeyObject {
@@ -101,6 +107,7 @@ export function issueServiceCredential(
     nbf: issuedAt,
     exp: issuedAt + ttlSeconds,
     ...(input.relay === undefined ? {} : { relay: input.relay }),
+    ...(input.consumerId === undefined ? {} : { consumer_id: input.consumerId }),
   });
   if (!claimsResult.success) {
     throw new ServiceCredentialIssuanceError(

@@ -14,6 +14,7 @@ import { HostRepository } from "../../src/hosts/host-repository.js";
 import { HostService } from "../../src/hosts/host-service.js";
 import { OAuthRepository } from "../../src/oauth/oauth-repository.js";
 import { OAuthService } from "../../src/oauth/oauth-service.js";
+import { GuanlanRegistrationOutboxReadiness } from "../../src/service-credentials/guanlan-space-readiness.js";
 import {
   createServiceCredentialKeyRing,
   type ServiceCredentialKeyMaterialConfig,
@@ -151,7 +152,12 @@ export function createTestOAuthContext(
     ? createServiceCredentialKeyRing(options.serviceCredentialKeyMaterial ?? null)
     : null;
   const serviceCredentialService = hasServiceCredentialConfig
-    ? new ServiceCredentialService(auth.repository, keyRing, hostService)
+    ? new ServiceCredentialService(
+        auth.repository,
+        keyRing,
+        hostService,
+        new GuanlanRegistrationOutboxReadiness(auth.db),
+      )
     : null;
   const app = buildApp({
     db: auth.db,
