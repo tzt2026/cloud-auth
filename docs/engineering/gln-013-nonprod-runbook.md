@@ -110,7 +110,28 @@ kid=gln013-t23-1  consumer_eq_sub=True  sub8=5728cbcd  consumer8=5728cbcd
 sha256_12=16d0f84f9b97  expiresAt=2026-11-03T17:37:31.000Z
 ```
 
-> TTL 只有 300s：t10 必须**现取现用**，不能缓存令牌跨用例复用。
+> TTL 只有 300s：调用方必须**现取现用**，不能缓存令牌跨用例复用。
+
+### 4.1 给下游（t9/t10）的取令牌方式：不依赖人工介入
+
+`mint.mjs`（仓库外脚本，只读本机会话文件）就是唯一入口，任何人都可以在同一台机器上直接跑：
+
+```bash
+# Guanlan 只读（默认）
+node "%TEMP%\gln013-t23\mint.mjs" "%TEMP%\gln013-t23"
+# 加写权限
+node "%TEMP%\gln013-t23\mint.mjs" "%TEMP%\gln013-t23" guanlan.read guanlan.write
+# 负例：错误 audience（Shiyan）
+node "%TEMP%\gln013-t23\mint.mjs" "%TEMP%\gln013-t23" --audience=mira:cloud-shiyan
+```
+
+- 只打印 `aud/scope/ttl/exp/kid/consumer_eq_sub/sha256_12`；**令牌原文不打印**，写到
+  `%TEMP%\gln013-t23\token-for-t10.txt`（目录 ACL 已 `icacls /inheritance:r` 收为仅当前 Windows 用户）。
+- 每次调用前重跑一次即可刷新（覆盖同一文件）；失败时非 0 退出并打印 `issue failed: <status> <code>`。
+- Shiyan 令牌写在 `token-shiyan.txt` 以便与 Guanlan 令牌并存（脚本默认覆盖 `token-for-t10.txt`，需要并存时
+  签完先复制）。
+- 注意 audience 常量必须带 `cloud-`：`{"audience":"mira:shiyan"}` → 400 `SERVICE_CREDENTIAL_INVALID_REQUEST`，
+  正确值是 `mira:cloud-shiyan`；Shiyan 请求体**只允许** `audience` 一个字段（`scopes/scope/relay` 都会 400）。
 
 ## 5. 公网 JWKS（只暴露公钥路径）
 
@@ -167,6 +188,21 @@ aud=mira:cloud-guanlan consumer_eq_sub=true scope=guanlan.read ttl=300
 
 **有效期与关闭**：隧道随 SSH 进程结束（或服务端重连）而失效/换址；JWKS 代理随 node 进程结束。两者都不是
 常驻服务。关闭后 Worker 的 JWKS 取回会失败 → 一律 401（fail closed，不会误放行）。
+
+### 5.1 换址的处理：host 文件 + 计划任务看护（不靠消息传递）
+
+隧道重连会换 host，把 host 写进聊天记录必然过期。约定：
+
+- **唯一发布通道**：`%TEMP%\gln013-t23\current-host.txt`。下游只读这个文件，消息里不再传具体 host。
+- **看护任务**：Windows 计划任务 `gln013-t23-keepalive`（每 1 分钟，用户级），跑
+  `%TEMP%\gln013-t23\keepalive.ps1`：
+  1. `8788` 不健康 → 用 `boot-server.mjs` 拉起（读同一 SQLite 与私钥，会话/账号状态保留）；
+  2. `8789` 不健康 → 重启 JWKS-only 代理；
+  3. host 文件里的 host 取不到 JWKS → 新开隧道，**新 host 实际返回 200 之后才写文件**。
+- 计划任务是独立进程树，**不随 DSH 会话/job 结束而退出**；实测：杀掉承载实例的会话 job 后，61 秒内
+  `/health` 与公网 JWKS 均恢复 200（日志 `instance down -> boot` → `instance 200`）。
+- 代价：换址后下游需要重新 deploy 一次 Worker 变量（只改变量，不重建 D1）。因此"隧道是临时设施"这条
+  要写进验收边界：它不是生产常驻，也没有可用性承诺。
 
 ## 6. 销毁步骤（跑完就做）
 
