@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { enqueueGuanlanRegistration, withholdGuanlanRegistration, resumeGuanlanRegistration } from "../guanlan-registration.js";
 import type { DatabaseSync } from "node:sqlite";
 import type { DevicePlatform } from "@uichat-mira/cloud-auth-contracts";
 import { verifySessionSecretHash } from "../security/session-token.js";
@@ -125,14 +126,20 @@ export class AuthRepository {
 
   createAccount(username: string, usernameNormalized: string, passwordHash: string, now: string): AccountRecord {
     const id = randomUUID();
-    this.db
-      .prepare(
+    this.db.exec("BEGIN IMMEDIATE;");
+    try {
+      this.db.prepare(
         `INSERT INTO accounts (
            id, username, username_normalized, password_hash, is_allowed, disabled_at,
            created_at, updated_at, password_changed_at
          ) VALUES (?, ?, ?, ?, 1, NULL, ?, ?, ?)`,
-      )
-      .run(id, username, usernameNormalized, passwordHash, now, now, now);
+      ).run(id, username, usernameNormalized, passwordHash, now, now, now);
+      enqueueGuanlanRegistration(this.db, id, now);
+      this.db.exec("COMMIT;");
+    } catch (error) {
+      this.db.exec("ROLLBACK;");
+      throw error;
+    }
 
     const account = this.findAccountById(id);
     if (!account) throw new Error("Account insert did not persist");
@@ -292,7 +299,12 @@ export class AuthRepository {
       this.db
         .prepare("UPDATE accounts SET is_allowed = ?, updated_at = ? WHERE id = ?")
         .run(allowed ? 1 : 0, now, accountId);
-      if (!allowed) this.revokeAllSessions(accountId, "admission_revoked", now);
+      if (!allowed) {
+        this.revokeAllSessions(accountId, "admission_revoked", now);
+        withholdGuanlanRegistration(this.db, accountId, now);
+      } else {
+        resumeGuanlanRegistration(this.db, accountId, now);
+      }
       this.db.exec("COMMIT;");
     } catch (error) {
       this.db.exec("ROLLBACK;");
@@ -306,7 +318,12 @@ export class AuthRepository {
       this.db
         .prepare("UPDATE accounts SET disabled_at = ?, updated_at = ? WHERE id = ?")
         .run(disabled ? now : null, now, accountId);
-      if (disabled) this.revokeAllSessions(accountId, "account_disabled", now);
+      if (disabled) {
+        this.revokeAllSessions(accountId, "account_disabled", now);
+        withholdGuanlanRegistration(this.db, accountId, now);
+      } else {
+        resumeGuanlanRegistration(this.db, accountId, now);
+      }
       this.db.exec("COMMIT;");
     } catch (error) {
       this.db.exec("ROLLBACK;");
