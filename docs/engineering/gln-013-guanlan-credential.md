@@ -15,7 +15,8 @@
    `sub`=Cloud Account id、`consumer_id`=同一 Cloud Account id、`scope`=`guanlan.read`（必需）+
    `guanlan.write`（显式请求）、`iat`/`nbf`/`exp`、EdDSA + `kid`。
 3. 签发的**前置闸门**是 GLN-012 的注册投影：只有 `delivered` 才签发，其余状态与表缺失一律 fail-closed。
-   PR #130 未合并 → 该表在 `dev` 不存在 → **当前 Guanlan 签发一定返回 409**，这是设计行为，不是缺陷。
+   GLN-012 已合并进 `dev`（`931ae6c`，PR #130），因此闸门在部署后即有真实落点：建号即 `pending`，
+   需真实投递把账号置 `delivered`；未投递的账号一律 409。
 4. 既有 Session/Relay/Shiyan 行为未改变；全量 `pnpm run check` 真实通过（见第 8 节）。
 
 ## 2. 事实基线
@@ -106,6 +107,9 @@ Cloud Auth 只读该投影：不创建 Guanlan 账号/消费者行，不存新�
   设备撤销/账号禁用/账号拒入，全部 `401 SERVICE_CREDENTIAL_REAUTH_REQUIRED`，不区分原因。
 - account/device/issuer/kid/scope/consumer 全部服务端派生；客户端只能选 audience 与（可选）scope 集。
 - 无空间（投影非 `delivered`）→ 409；未配置签名材料 → 503。两者都不签发、不泄漏。
+- 错误码刻意不混用：**账号不可用**在权威检查阶段就失败为 `401`（GLN-012 会在同一事务把该账号置
+  `withheld`），**注册未完成**才是 `409 PRINCIPAL_NOT_READY`。因此 409 只描述"注册进度"，不充当账号状态
+  oracle；`withheld` 不作为单独的对外错误码，避免泄露"该账号被拒/被禁"。
 
 ## 6. 撤销语义
 
@@ -120,8 +124,9 @@ Cloud Auth 只读该投影：不创建 Guanlan 账号/消费者行，不存新�
 
 | 状态 | code | 何时 |
 | --- | --- | --- |
-| 409 | `SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY` | 注册投影非 `delivered` 或表缺失 |
+| 409 | `SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY` | 注册投影非 `delivered`（含 `pending`/`delivering`/`withheld`/`failed`/无行/表缺失） |
 | 400 | `SERVICE_CREDENTIAL_INVALID_REQUEST` | scope 集合非法、客户端自报身份/consumer |
+| 401 | `SERVICE_CREDENTIAL_REAUTH_REQUIRED` | 会话/设备/账号不可用（先于闸门判定，不区分原因） |
 
 其余错误码与既有 audience 完全一致，未改动。
 
@@ -152,7 +157,7 @@ pnpm run check   # 仓库根：typecheck + 全量 test
 
 | 事项 | 归属 |
 | --- | --- |
-| `guanlan_registration_outbox` 表、投递、重试、admin CLI、`delivered` 判定 | GLN-012（PR #130，未合并） |
+| `guanlan_registration_outbox` 表、投递、重试、admin CLI、`delivered` 判定 | GLN-012（PR #130，已合并 `931ae6c`） |
 | 读该投影作为签发闸门 | GLN-013（本文） |
 | `guanlan_accounts` / `guanlan_consumers` 行与 consumer 业务语义 | Guanlan（GLN-012 与之对接） |
 | Cloud Auth 账号/设备/会话/凭证签发 | 本仓（既有） |
@@ -164,7 +169,9 @@ GLN-012 的 outbox **不是授权**，只是"注册是否已持久确认"的投�
 1. **Guanlan 侧 consumer 行缺失**：即使令牌合法，`guanlan_consumers(account_id, consumer_id)` 无行时
    Guanlan 会返回 `guanlan_principal_unavailable`（GLN-014 已记录）。该行由 Guanlan provisioning 负责，
    尚未实现/执行。
-2. **GLN-012 未合并**：本仓 `dev` 无 outbox 表 → Guanlan 签发当前一律 409。合并后需回归一次。
+2. **注册投影尚未 delivered**：建号自动写 `pending`，必须经 GLN-012 的真实投递（HTTPS 接收端 + HMAC）才会
+   变成 `delivered`。接收端（GLN-015）与非生产 HTTPS 入口未就绪前，Guanlan 签发一律 409。老账号还需先跑
+   `guanlan-backfill`，否则连行都没有（同样 409，不会默认放行）。
 3. **无真实 `/mcp` 端点**：Guanlan `wrangler.jsonc` 为 `do-not-deploy`、D1 UUID 全 0、`workers_dev:false`。
 4. **无真实 JWKS 取回/轮换观测**：本机无 Cloud Auth dev/test 实例（只有生产 `cloud-auth.tomzlab.cn`，
    test 非常驻），未向 Guanlan 提供真实 `CLOUD_AUTH_JWKS_URL`。

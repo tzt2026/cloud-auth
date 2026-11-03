@@ -1,9 +1,9 @@
-# GLN-013 前置 · Cloud Auth 服务凭证现状盘点与签发草案
+﻿# GLN-013 前置 · Cloud Auth 服务凭证现状盘点与签发草案
 
 - 状态：**只读盘点 + 草案，不包含产品代码改动，也未经 Guanlan 侧确认**
 - 仓库基线：`uichat-mira/cloud-auth` `origin/dev` `481767ffe6faa9186693dad90ce4994980474517`
 - Guanlan 对照基线：`uichat-mira/cloud-mcp-guanlan` `origin/dev` `fbaecaa16b535a19576c9db651a55739b777e2a9`
-- 规范依据：组织 `AGENTS.md`（Policy `2026-09-16.2`）、`cloud-auth/AGENTS.md`、Issue #129（GLN-013 契约）、Issue #128（GLN-012 契约）、PR #130（GLN-012 open，未入 dev）
+- 规范依据：组织 `AGENTS.md`（Policy `2026-09-16.2`）、`cloud-auth/AGENTS.md`、Issue #129（GLN-013 契约）、Issue #128（GLN-012 契约）、PR #130（GLN-012，已合并入 dev，`931ae6c`）
 - 阅读方式：本文所有断言都带代码位置；标 **【事实】** 表示已在上述基线代码中核实；标 **【拟变更】** 表示 GLN-013 的实现方案（实现结果见 [gln-013-guanlan-credential.md](gln-013-guanlan-credential.md)）；标 **【待确认】** 表示已核实、但取值或语义须由 Guanlan 侧/维护者裁决；标 **【未验证】** 表示缺真实环境、本机无法核实，不得当作已成立。
 
 > 本文是 GLN-013 的**前置盘点**，部分结论随后被实现取代（audience/scope/consumer_id/闸门已按维护者裁决实现）。实现与证据以 [gln-013-guanlan-credential.md](gln-013-guanlan-credential.md) 为准；本文保留原始缺口判断以便追溯。
@@ -78,7 +78,7 @@
 
 **【事实】** 该事务的意义是：登出、续期、设备撤销、账号禁用等写操作不能插在"最终鉴权"与"签名"之间。已有集成测试覆盖（`apps/api/tests/integration/service-credential-issuance.test.ts:336-386`、`:294-334`）。
 
-**【事实】** dev 上**没有**第二种可信上下文：无服务间 HMAC 校验、无内部 token、无 introspection 端点（全仓库检索 `HMAC`/`introspect`/`jti` 无产品代码命中）。GLN-012 的 HMAC **发送端**属于 PR #130（未入 dev），且方向是 Cloud Auth → Guanlan 的注册投递，不能当"内部调用者凭证"。
+**【事实】** dev 上**没有**第二种可信上下文：无服务间 HMAC 校验、无内部 token、无 introspection 端点（全仓库检索 `HMAC`/`introspect`/`jti` 无产品代码命中）。GLN-012 的 HMAC **发送端**属于 GLN-012（已合并入 dev，`931ae6c`），且方向是 Cloud Auth → Guanlan 的注册投递，不能当"内部调用者凭证"。
 
 **【拟变更】** GLN-013 继续只接受"已验证、设备绑定的 Cloud Session"。若 Desktop/Mobile 需要无感取票，它们已持有设备绑定会话，无需新机制；**不得**新增一条"内部调用即可签发"的旁路。
 
@@ -121,7 +121,7 @@
 | G2 | 无 `guanlan.read` / `guanlan.write` scope | `service-credential.ts:18-24` | 【拟变更】新增两个 scope，读/写可分 |
 | G3 | 无 `consumer_id` claim，且 schema `.strict()` 会拒绝额外 claim | `service-credential.ts:60-114` | 【拟变更】新增 claim；**语义【待确认】** |
 | G4 | 现有 scope 用 `z.tuple` 固定单值，无法表达 read 或 read+write | `service-credential.ts:96`、`:105` | 【拟变更】Guanlan 变体改用受约束数组 + 顺序/去重校验 |
-| G5 | 无"观澜空间是否存在/已注册"判定 | dev 无 outbox 表（`apps/api/migrations/` 仅 001–007）；`guanlan-registration.ts` 只在 PR #130 | 【待确认】以 GLN-012 投影为闸门（见 §6.3） |
+| G5 | 无"观澜空间是否存在/已注册"判定 | 盘点时 dev 无 outbox 表；GLN-012 已随 #130 合并入 dev（`931ae6c`，migration 008 + `guanlan-registration.ts`） | 【待确认】以 GLN-012 投影为闸门（见 §6.3） |
 | G6 | 撤销仅阻止未来签发 | `docs/service-credentials-v0.md:252-256` | 【待确认】接受 ≤600s 窗口，或另立在线撤销任务（不在本卡） |
 | G7 | 无 consumer 归属数据 | 全仓库无 `consumer` 产品代码 | 【待确认】minimal 方案不新建归属表（见 §6.2） |
 | G8 | 无内部可信调用凭证 | dev 无 HMAC/introspection | 【拟变更】不新增；原则上沿用设备绑定会话 |
@@ -156,7 +156,7 @@
 | `apps/api/src/service-credentials/service.ts` | Guanlan 分支：scope 派生（读/写）、注册状态闸门、`consumer_id` 注入 | 不得改动 Shiyan/Relay 分支行为 |
 | `apps/api/src/service-credentials/signer.ts` | 无需改协议；`scope` 入参类型放宽为 `readonly ServiceCredentialScope[]`（已是数组） | 低 |
 | `apps/api/src/service-credentials/routes.ts` | 预计无需改；如需新错误码再加映射 | 中（响应契约） |
-| `apps/api/src/auth/auth-repository.ts` 或新增 repository | 读 GLN-012 outbox 注册状态（**仅在 PR #130 合并后存在**） | 中；跨卡依赖 |
+| `apps/api/src/auth/auth-repository.ts` 或新增 repository | 读 GLN-012 outbox 注册状态（GLN-012 已合并：`apps/api/src/guanlan-registration.ts`） | 中；跨卡依赖 |
 | `docs/service-credentials-v0.md` | 增补 Guanlan audience/scope 与撤销窗口说明 | 低 |
 | `apps/api/migrations/` | 若 consumer 归属需落库才新增；minimal 方案**不新增表** | 见 §6.2 |
 
@@ -178,7 +178,7 @@
 
 **【拟变更】** 两个可选实现，都需要跨卡确认：
 
-1. **前置闸门（推荐）**：签发前读 Cloud Auth 自己的 `guanlan_registration_outbox`（GLN-012，PR #130）状态；`delivered` 才签发。数据仍归 Cloud Auth（这是 Cloud Auth 的投递投影，不是观澜业务数据）。**硬依赖 PR #130 合并**。
+1. **前置闸门（推荐）**：签发前读 Cloud Auth 自己的 `guanlan_registration_outbox`（GLN-012，PR #130）状态；`delivered` 才签发。数据仍归 Cloud Auth（这是 Cloud Auth 的投递投影，不是观澜业务数据）。GLN-012 已合并入 dev（`931ae6c`），闸门已有真实落点。
 2. **后置判定**：Cloud Auth 照常签发，Guanlan 侧对未注册空间返回 `guanlan_principal_unavailable`（`capabilities.ts` 已有）。实现简单，但不满足 Issue #129 "不放行"的字面要求，且把失败暴露给最终用户。
 
 若选 1，则需要一个新的响应错误码（候选 `SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY`，**【待确认】**），并同步 `serviceCredentialErrorCodeSchema`（`service-credential.ts:161-168`）与错误信封。
@@ -220,7 +220,7 @@ export const guanlanServiceCredentialClaimsSchema = /* aud 字面量 + consumer_
 3. **空间闸门实现**（§6.3 前置 vs 后置）与是否新增错误码。
 4. **TTL 是否维持 ≤600s**：600s 是当前审阅过的 V0 上限（`signer.ts:17`、`verifier.ts:81`），放宽是独立决策。
 5. **撤销窗口接受度**：≤600s（+5s 容差）内旧 token 仍有效，是否可接受。
-6. **GLN-012 合并顺序**：若选前置闸门，PR #130 未合并则 GLN-013 无法实现闸门（可先写契约与测试骨架，但不能宣称可用）。
+6. **GLN-012 合并顺序**：已选前置闸门；GLN-012 已合并入 dev（`931ae6c`），闸门可落地。剩余阻塞是如何真实到达 `delivered`（GLN-015 接收端 + 非生产 https 入口）。
 7. **跨仓库字段对齐责任人**：§5 清单需 guanlan-dev 逐项确认，特别是 `device_id` 额外 claim 与 `consumer_id` 缺失即 401 的行为。
 
 ## 8. 明确的 Non-goals

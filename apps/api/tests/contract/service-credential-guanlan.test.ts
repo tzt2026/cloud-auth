@@ -95,9 +95,15 @@ async function provisionedSession(context: TestServiceCredentialContext) {
 }
 
 describe("Guanlan credential HTTP contract", () => {
-  it("fails closed while the GLN-012 registration projection is absent", async () => {
+  it("fails closed while the account registration is not delivered", async () => {
     const context = createContext();
     const session = await provisionedSession(context);
+
+    // GLN-012 enqueues `pending` with the account; nothing else moves it.
+    const registration = context.db
+      .prepare("SELECT status FROM guanlan_registration_outbox WHERE account_id = ?")
+      .get(session.account.id) as { status: string } | undefined;
+    expect(registration?.status).toBe("pending");
 
     const response = await issue(context, session.sessionToken, {
       audience: CLOUD_GUANLAN_AUDIENCE,
@@ -107,6 +113,24 @@ describe("Guanlan credential HTTP contract", () => {
     const envelope = serviceCredentialErrorEnvelopeSchema.parse(response.json());
     expect(envelope.error.code).toBe("SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY");
     expect(envelope.error.message).not.toContain(session.sessionToken);
+    expect(response.body).not.toContain("token");
+
+    context.db.close();
+    await context.app.close();
+  });
+
+  it("fails closed when the GLN-012 projection is missing entirely", async () => {
+    const context = createContext();
+    const session = await provisionedSession(context);
+    context.db.exec("DROP TABLE guanlan_registration_outbox");
+
+    const response = await issue(context, session.sessionToken, {
+      audience: CLOUD_GUANLAN_AUDIENCE,
+    });
+
+    expect(response.statusCode).toBe(409);
+    const envelope = serviceCredentialErrorEnvelopeSchema.parse(response.json());
+    expect(envelope.error.code).toBe("SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY");
     expect(response.body).not.toContain("token");
 
     context.db.close();

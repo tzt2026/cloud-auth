@@ -49,7 +49,7 @@ The check runs inside the same `BEGIN IMMEDIATE` issuance transaction as the ses
 
 Consumer identity and write authority are derived, not accepted from the client: `consumer_id` is the verified account id, and `guanlan.write` appears only when the caller explicitly requested it alongside `guanlan.read`. There is no path from read-only to write and no path from one account's session to another account's consumer.
 
-**Availability caveat:** GLN-012 is a separate, still-open work item (`cloud-auth` PR #130). Until it merges, the projection table does not exist and every Guanlan issuance attempt correctly fails closed with `409 SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY`. Guanlan credential issuance is therefore implemented and tested but **not usable** yet.
+**Availability caveat:** GLN-012 (the registration outbox) is merged into `dev` (`931ae6c`), so the projection exists in deployment. An account starts at `pending` and only a confirmed delivery moves it to `delivered`, so Guanlan credential issuance fails closed with `409 SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY` until the Guanlan receiver delivers that account. Credential issuance itself is implemented and tested; it is **not** proven end-to-end against a live Guanlan deployment.
 
 ## Contract
 

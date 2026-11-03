@@ -1,4 +1,4 @@
-# GLN-013 · 非生产 Cloud Auth 实例与签发源准备
+﻿# GLN-013 · 非生产 Cloud Auth 实例与签发源准备
 
 > 用途：给 GLN-014/Guanlan 侧提供**非生产** Cloud Auth 签发源（本机或隔离实例），使 Guanlan 验证器与
 > JWKS 可取回、令牌可签出。**禁止**用生产 `cloud-auth.tomzlab.cn` 做联调。
@@ -12,9 +12,9 @@
 | 能否本机起一个可用 Cloud Auth？ | **能**。`pnpm` + `node --import tsx src/server.ts`，SQLite 单文件，无外部依赖。 |
 | 能否取到 JWKS？ | **能**。`GET /.well-known/jwks.json`，`Cache-Control: public, max-age=300`。 |
 | 能否签发 Shiyan/Relay 令牌？ | **能**，且本机已实际签出一枚 Shiyan 令牌（见 §6）。 |
-| 能否签发 Guanlan 令牌？ | **当前不能**：Guanlan 签发前置读 GLN-012 注册投影，`dev` 无该表 → 一律 `409 SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY`。这是**设计行为**，本机已实测。 |
-| 本机能否驱动 outbox 到 `delivered`？ | **不能**。GLN-012 的投递传输**强制 https**（`createGuanlanRegistrationTransport` 校验 `u.protocol !== "https:"` 即拒绝），`http://127.0.0.1` 收不到投递。 |
-| 合法到达 `delivered` 的最小手段 | GLN-012 合并 +（GLN-015 接收端 + 一个 **https** 非生产入口，如临时隧道/隔离部署）+ 共享 HMAC secret，然后跑 `guanlan-deliver`。**不得直接改库。** |
+| 能否签发 Guanlan 令牌？ | **当前不能**：建号即写 `pending`，只有真实投递把投影置 `delivered` 后才签发；否则一律 `409 SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY`（本机已实测）。 |
+| 本机能否驱动 outbox 到 `delivered`？ | **投递网络不行，状态机可以**。GLN-012 的投递传输**强制 https**（`createGuanlanRegistrationTransport` 校验 `u.protocol !== "https:"` 即拒绝），`http://127.0.0.1` 收不到投递；但 `deliverGuanlanRegistrations` 的状态机可在本机用注入 transport 跑通（T3 用例已覆盖 `pending → 未确认 → pending`、`pending → confirmed → delivered`）。 |
+| 合法到达 `delivered` 的最小手段 | GLN-015 接收端 + 一个 **https** 非生产入口（临时隧道/隔离部署）+ 共享 HMAC secret（≥32 字符）；老账号先 `guanlan-backfill`，再 `guanlan-deliver`。**不得直接改库。** |
 
 ## 1. 本机实例启动
 
@@ -39,8 +39,12 @@ PORT=8788 HOST=127.0.0.1 LOG_LEVEL=info \
 MIRA_AUTH_SERVICE_CREDENTIAL_ACTIVE_KID=gln013-local-1 \
 MIRA_AUTH_SERVICE_CREDENTIAL_ACTIVE_PRIVATE_KEY="$(cat data/gln013-local-signing.pem)" \
 MIRA_AUTH_SERVICE_CREDENTIAL_TTL_SECONDS=300 \
+MIRA_GUANLAN_REGISTRATION_URL="https://<non-prod-receiver>/<path>" \
+MIRA_GUANLAN_REGISTRATION_SECRET="<shared secret, >=32 chars>" \
 node --import tsx src/server.ts
 ```
+
+投递相关两项只被 admin CLI 的 `guanlan-deliver` 使用（API 进程本身不需要它们，但同机运行时用同一份环境更省事）。
 
 ### 1.3 启动（Windows PowerShell）
 
@@ -136,15 +140,17 @@ POST /v1/service-credentials {"audience":"mira:cloud-guanlan","consumer_id":"oth
 
 即：签名链路本身可用（Shiyan 已签出），Guanlan 令牌被**空间闸门**挡住，客户端自报 consumer 被严格请求
 schema 拒绝。Guanlan 令牌的字段正确性由 T1/T2/T3 覆盖（`tests/unit|contract|integration` 三个
-`*guanlan*` 文件，20 条用例），其中 T3 用的是**测试专用**的投影表，不能当作真实投递。
+`*guanlan*` 文件，21 条用例）；其中一条 T3 用 `dev` 自己的投递状态机把账号从 `pending` 推进到
+`delivered`（transport 注入、不走网络），其余闸门负例直接构造 outbox 行——两者都不是真实投递。
 
 ## 4. 闸门与 `pending → delivered`
 
-`dev` 现状（GLN-012 / PR #130 未合并）：
+`dev` 现状（GLN-012 已合并，merge commit `931ae6c`）：
 
-- 无 `guanlan_registration_outbox` 表 → `GuanlanRegistrationOutboxReadiness.status()` 返回 `unavailable`
-  → 一律 `409 SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY`。
-- 合并后：账号创建时 GLN-012 会写入 `pending`；只有真实投递成功才置 `delivered`。
+- 建号即在同一事务写入 `pending`；老账号需 `guanlan-backfill`（只补活跃账号，默认也是 `pending`）。
+- 投影表缺失（未迁移）→ `GuanlanRegistrationOutboxReadiness.status()` 返回 `unavailable`
+  → 一律 `409 SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY`（未知 ≠ 允许）。
+- 只有真实投递成功才置 `delivered`。
 
 GLN-012 的投递事实（只读核对，未接管该工作项）：
 
@@ -157,14 +163,37 @@ GLN-012 的投递事实（只读核对，未接管该工作项）：
 | 触发 | `pnpm run admin guanlan-deliver`（另有 `guanlan-backfill` / `guanlan-status` / `guanlan-retry`） |
 | 结果 | 只有确认成功才 `UPDATE ... SET status='delivered'`；未确认回落 `pending`/`failed` |
 
+接收端归 GLN-015（`cloud-mcp-guanlan`，`POST /internal/guanlan-registrations`，校验 ±300s 时间窗 +
+`x-mira-signature` 的 HMAC 并做幂等写入，只在持久化成功后返回 `{accountId, registered:true}`）。**该接收端
+代码已交付但其真实部署被外部阻塞**（隔离云环境供给卡 t18 因 Cloudflare 凭据过期失败），因此当前没有可用的
+https 入口 —— 这就是"真实投递"这一步唯一的缺口。
+
+一旦有了 https 入口，完整命令是：
+
+```bash
+# 老账号先补投影（新账号建号即 pending，可跳过）
+MIRA_GUANLAN_REGISTRATION_URL=https://<host>/internal/guanlan-registrations \
+MIRA_GUANLAN_REGISTRATION_SECRET="<shared secret, >=32 chars>" \
+pnpm run admin guanlan-backfill
+
+MIRA_GUANLAN_REGISTRATION_URL=https://<host>/internal/guanlan-registrations \
+MIRA_GUANLAN_REGISTRATION_SECRET="<shared secret, >=32 chars>" \
+pnpm run admin guanlan-deliver          # 真实 HMAC 投递，确认后置 delivered
+pnpm run admin guanlan-status gln013-tester   # 核对该账号已 delivered
+```
+
 因此：
 
-1. **本机 loopback 无法产生 `delivered`**（http 被拒）。最小合法路径是给 GLN-015 接收端一个 **https**
-   非生产入口（临时隧道或隔离部署），把 `MIRA_GUANLAN_REGISTRATION_URL` 指向它，再跑 `guanlan-deliver`。
+1. **本机 loopback 无法产生网络投递**（http 被拒）。最小合法路径是给 GLN-015 接收端一个 **https**
+   非生产入口（临时隧道或隔离部署），把 `MIRA_GUANLAN_REGISTRATION_URL` 指向它，先 `guanlan-backfill`
+   （老账号），再跑 `guanlan-deliver`。
 2. **禁止**用 `UPDATE ... SET status='delivered'` 或手写行来"造出"投递成功——那会把未注册的空间伪装成
-   已注册，Guanlan 侧仍会 `guanlan_principal_unavailable`，属于伪造成功。
+   已注册，Guanlan 侧仍会 `guanlan_principal_unavailable`，属于伪造成功。T3 里构造 `delivered` 行是
+   **测试夹具**，仅用于验证闸门的正/负分支，不是投递证据。
 3. 真实联调里闸门的表现：未投递 → 409（不签发、不泄漏）；投递成功 → 正常签发；账号被 deny/disable →
-   GLN-012 会把记录置 `withheld` → 依然 409，即使会话仍有效。
+   GLN-012 把记录置 `withheld` 且会话被撤销 → 请求在权威检查阶段就是 401（而不是 409）。
+4. 投递失败会按 8 次上限 + 指数退避留在 `pending`/`failed`；`guanlan-retry <username>` 可重排，`failed`
+   到顶后需人工确认，不会自动放行。
 
 ## 5. Guanlan Worker 侧的 JWKS 可达性
 
@@ -186,14 +215,16 @@ GLN-012 的投递事实（只读核对，未接管该工作项）：
 | 建号 | `{"id":"ced71b61-…","username":"gln013-tester","allowed":true}` |
 | 登录 + 绑定设备 | `account=ced71b61-… device=f24d4b56-… platform=desktop` |
 | 签发 Shiyan | `aud=mira:cloud-shiyan scope=shiyan:authenticate ttl=300 sha256_12=5f396749d48f` |
-| 签发 Guanlan | `409 SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY`（闸门，符合预期） |
+| 签发 Guanlan | `409 SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY`（闸门，符合预期：建号后仍是 `pending`） |
 | 自报 consumer | `400 SERVICE_CREDENTIAL_INVALID_REQUEST` |
 
-未做（也不宣称）：真实 Guanlan `/mcp` 调用、真实 JWKS 取回、真实 outbox 投递、任何生产实例操作。
+未做（也不宣称）：真实 Guanlan `/mcp` 调用、真实 JWKS 取回、**真实网络投递**（`guanlan-deliver` 指向真实
+GLN-015 接收端）、任何生产实例操作。真实投递的阻塞项是接收端与 https 入口，不是本仓代码。
 
 ## 7. 限制与残留风险
 
 1. 本机实例只证明"能起、能签、能拒"，不证明"Guanlan 接受"。
-2. GLN-012 未合并前，任何 Guanlan 联调都会停在 409；合并后还需 GLN-015 接收端与 https 入口。
+2. GLN-012 已合并（`931ae6c`），但 GLN-015 接收端与 https 非生产入口未就绪前，Guanlan 联调仍会停在 409。
 3. 本地签名密钥是**一次性非生产密钥**，绝不能复制到任何共享环境；生产密钥由维护者另行注入。
 4. 端口 8788 与 test 环境默认值相同，同一台机器不要并行启动两个实例（SQLite 文件也不同，但端口会冲突）。
+5. 老账号若未 `guanlan-backfill`，闸门表现为"无行 → 409"，与 `pending` 无法从响应区分（这是有意的）。

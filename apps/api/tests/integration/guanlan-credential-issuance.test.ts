@@ -12,6 +12,7 @@ import {
   serviceCredentialErrorEnvelopeSchema,
 } from "@uichat-mira/cloud-auth-contracts";
 import { parseSessionToken } from "../../src/security/session-token.js";
+import { deliverGuanlanRegistrations } from "../../src/guanlan-registration.js";
 import {
   verifyServiceCredential,
   type ServiceCredentialVerifierConfig,
@@ -90,6 +91,52 @@ function guanlanClaimsOf(context: TestServiceCredentialContext, token: string) {
 }
 
 describe("Guanlan credential issuance on SQLite", () => {
+  it("unblocks issuance only when the GLN-012 delivery state machine confirms", async () => {
+    const context = createContext();
+    const session = await provisionedSession(context);
+    const accountId = session.account.id;
+
+    // GLN-012 enqueues `pending` in the same transaction as account creation.
+    const enqueued = context.db
+      .prepare("SELECT status FROM guanlan_registration_outbox WHERE account_id = ?")
+      .get(accountId) as { status: string } | undefined;
+    expect(enqueued?.status).toBe("pending");
+    expect(
+      (await issue(context, session.sessionToken, { audience: CLOUD_GUANLAN_AUDIENCE }))
+        .statusCode,
+    ).toBe(409);
+
+    // An unconfirmed delivery must not move the projection to `delivered`.
+    const unconfirmed = await deliverGuanlanRegistrations(context.db, {
+      send: async () => false,
+    });
+    expect(unconfirmed.delivered).toBe(0);
+    expect(
+      (await issue(context, session.sessionToken, { audience: CLOUD_GUANLAN_AUDIENCE }))
+        .statusCode,
+    ).toBe(409);
+
+    // A confirmed delivery marks the account ready on the real state machine.
+    const confirmed = await deliverGuanlanRegistrations(
+      context.db,
+      { send: async () => true },
+      { now: () => new Date(Date.now() + 120_000) },
+    );
+    expect(confirmed.delivered).toBe(1);
+
+    const issued = await issue(context, session.sessionToken, {
+      audience: CLOUD_GUANLAN_AUDIENCE,
+    });
+    expect(issued.statusCode).toBe(200);
+    const claims = guanlanClaimsOf(
+      context,
+      issuedServiceCredentialSchema.parse(issued.json()).token,
+    );
+    expect(claims.consumer_id).toBe(accountId);
+
+    await close(context);
+  });
+
   it("issues only while the GLN-012 registration projection reports delivered", async () => {
     const context = createContext();
     const session = await provisionedSession(context);

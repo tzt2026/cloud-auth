@@ -19,10 +19,12 @@ const OUTBOX_TABLE = "guanlan_registration_outbox";
  * Reads the GLN-012 registration outbox on the same SQLite connection as the
  * issuance transaction.
  *
- * The table is owned by GLN-012 (`cloud-auth` PR #130). Until that work item
- * lands, the table does not exist in `dev` and every Guanlan issuance attempt
- * resolves to `unavailable`, which callers must treat as fail-closed rather
- * than as permission. No Guanlan business data is stored here.
+ * The table is owned by GLN-012 (`migrations/008_guanlan_registration_outbox.sql`,
+ * merged in `dev` `931ae6c`): account creation enqueues `pending` and only a
+ * confirmed delivery moves a row to `delivered`. A missing table (migration not
+ * applied, or an older database) resolves to `unavailable`, which callers must
+ * treat as fail-closed rather than as permission. No Guanlan business data is
+ * stored here.
  */
 export class GuanlanRegistrationOutboxReadiness implements GuanlanSpaceReadiness {
   constructor(private readonly db: DatabaseSync) {}

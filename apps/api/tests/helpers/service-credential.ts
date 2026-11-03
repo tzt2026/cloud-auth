@@ -28,11 +28,9 @@ export function createTestServiceCredentialContext(
 }
 
 /**
- * GLN-012 durable registration outbox, copied verbatim from the owning work
- * item (`cloud-auth` PR #130, `migrations/008_guanlan_registration_outbox.sql`).
+ * GLN-012 durable registration outbox, copied from the merged migration
+ * (`cloud-auth` `dev` `931ae6c`, `migrations/008_guanlan_registration_outbox.sql`).
  * Cloud Auth only reads this projection; it never stores Guanlan business data.
- * The real migration is not part of this branch: while the table is absent,
- * Guanlan issuance must fail closed.
  */
 const GUANLAN_REGISTRATION_OUTBOX_TABLE = "guanlan_registration_outbox";
 const GUANLAN_REGISTRATION_OUTBOX_COLUMNS = `account_id TEXT PRIMARY KEY REFERENCES accounts(id),
@@ -70,6 +68,9 @@ export function setGuanlanRegistrationStatus(
   if (!outboxExists(db)) {
     db.exec(
       `CREATE TABLE ${GUANLAN_REGISTRATION_OUTBOX_TABLE} (${GUANLAN_REGISTRATION_OUTBOX_COLUMNS})`,
+    );
+    db.exec(
+      `CREATE INDEX guanlan_registration_due ON ${GUANLAN_REGISTRATION_OUTBOX_TABLE}(status, next_attempt_at)`,
     );
   }
   db.prepare(
