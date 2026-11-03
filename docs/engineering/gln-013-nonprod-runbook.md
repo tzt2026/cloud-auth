@@ -270,3 +270,5 @@ git -C D:\cloud-auth-wt\gln-013 status --porcelain
 | 02:31 | Worker 真实接受（t10，非生产隔离 Worker） | `initialize`/`tools/list`/`whoami`/`news_recent` 均 200；`whoami` 回 `consumerEqualsAccount: true`、`scopes:["guanlan.read"]` |
 | 02:31 | 错误 audience 负例（t10） | Shiyan 令牌（`scope=shiyan:authenticate`）打 Guanlan `/mcp` → `401 invalid_token`（非 503，说明是验证拒绝而非配置缺失） |
 | 02:31 | 跨账户隔离（t10） | 令牌（`5728cbcd…`）读不到合成账户 `33333333…` 的文章；`decide` → `guanlan_decision_not_available`（不泄露存在性）；D1 零写入 |
+| 02:47 | 静态 JWKS 独立核对 | Pages `/.well-known/jwks.json` 200；与本机 `signing.pub.pem` 导出的 JWK 比对 `pages_matches_local=true`、`kid=gln013-t23-1`、无 `d` 分量（消费方侧另核 `same_x=true`） |
+| 02:55 | 隧道/代理下线后复验 | `8788 /health` 200、`8789` 已关闭；现签 `ttl=300`、`kid=gln013-t23-1`、`consumer_eq_sub=true`；该令牌打 `/mcp` 的 `initialize`/`tools/list`/`whoami` 均 200（`consumerEqualsAccount:true`） |
