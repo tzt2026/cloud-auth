@@ -1,4 +1,4 @@
-﻿# GLN-013 · 非生产 Cloud Auth 实例与签发源准备
+# GLN-013 · 非生产 Cloud Auth 实例与签发源准备
 
 > 用途：给 GLN-014/Guanlan 侧提供**非生产** Cloud Auth 签发源（本机或隔离实例），使 Guanlan 验证器与
 > JWKS 可取回、令牌可签出。**禁止**用生产 `cloud-auth.tomzlab.cn` 做联调。
@@ -158,15 +158,19 @@ GLN-012 的投递事实（只读核对，未接管该工作项）：
 | --- | --- |
 | 端点配置 | `MIRA_GUANLAN_REGISTRATION_URL` |
 | 共享密钥 | `MIRA_GUANLAN_REGISTRATION_SECRET`（长度 < 32 直接拒绝） |
+| 密钥精度 | **必须与 Worker 侧逐字节一致**：发送端用配置原值做 HMAC key，**不 trim**；接收端对"带首尾空白的 secret"直接回 `503 registration_not_configured`（不是 401）。从文件注入请用 `printf '%s'` / `Set-Content -NoNewline`，不要 `echo` / `cat <<EOF` 带换行。 |
 | 传输要求 | **https only**：`new URL(endpoint)` 非 `https:` 即抛 `Guanlan delivery configuration is unsafe` |
 | 签名 | `x-mira-signature: sha256=<hex HMAC(secret, timestamp + "." + body)>` |
 | 触发 | `pnpm run admin guanlan-deliver`（另有 `guanlan-backfill` / `guanlan-status` / `guanlan-retry`） |
 | 结果 | 只有确认成功才 `UPDATE ... SET status='delivered'`；未确认回落 `pending`/`failed` |
+| 本机网络 | 若本机需经代理出网，`fetch` 默认不走代理：用 `node --use-env-proxy`（或 `NODE_USE_ENV_PROXY=1`）+ `HTTPS_PROXY`，否则表现为 `last_error=delivery_unconfirmed`（8s 超时）。 |
 
 接收端归 GLN-015（`cloud-mcp-guanlan`，`POST /internal/guanlan-registrations`，校验 ±300s 时间窗 +
-`x-mira-signature` 的 HMAC 并做幂等写入，只在持久化成功后返回 `{accountId, registered:true}`）。**该接收端
-代码已交付但其真实部署被外部阻塞**（隔离云环境供给卡 t18 因 Cloudflare 凭据过期失败），因此当前没有可用的
-https 入口 —— 这就是"真实投递"这一步唯一的缺口。
+`x-mira-signature` 的 HMAC 并做幂等写入，只在持久化成功后返回 `{accountId, registered:true}`）。
+
+2026-11-04 更新：隔离非生产接收端已部署并冒烟（`https://cloud-guanlan-gln014-3c872be6.dangjingtao.workers.dev`，
+真实 D1）。真实 `pending → delivered` 的操作序列、实测输出、JWKS 临时暴露与销毁步骤见
+[gln-013-nonprod-runbook.md](gln-013-nonprod-runbook.md)。
 
 一旦有了 https 入口，完整命令是：
 

@@ -1,3 +1,4 @@
+import { createPrivateKey, sign } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   CLOUD_GUANLAN_AUDIENCE,
@@ -12,6 +13,7 @@ import { parseSessionToken } from "../../src/security/session-token.js";
 import { verifyServiceCredential } from "../../src/service-credentials/index.js";
 import {
   createIsolatedServiceCredentialContext as createContext,
+  createTestServiceCredentialKeyMaterial,
   disposeIsolatedServiceCredentialContexts,
   guanlanVerifier,
   issueServiceCredential as issue,
@@ -61,6 +63,43 @@ describe("Guanlan credential HTTP contract", () => {
     const envelope = serviceCredentialErrorEnvelopeSchema.parse(response.json());
     expect(envelope.error.code).toBe("SERVICE_CREDENTIAL_PRINCIPAL_NOT_READY");
     expect(response.body).not.toContain("token");
+
+    context.db.close();
+    await context.app.close();
+  });
+
+  it("rejects a credential whose consumer identity is not its subject", async () => {
+    const keyMaterial = createTestServiceCredentialKeyMaterial();
+    const context = createContext(keyMaterial);
+    const session = await provisionedSession(context);
+    const sessionId = parseSessionToken(session.sessionToken)!.id;
+    const binding = context.db
+      .prepare("SELECT device_id FROM sessions WHERE id = ?")
+      .get(sessionId) as { device_id: string } | undefined;
+    expect(binding?.device_id).toBeTruthy();
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const header = { alg: "EdDSA", typ: "JWT", kid: keyMaterial.activeKeyId };
+    const claims = {
+      iss: SERVICE_CREDENTIAL_ISSUER,
+      sub: session.account.id,
+      device_id: binding!.device_id,
+      aud: CLOUD_GUANLAN_AUDIENCE,
+      scope: [GUANLAN_READ_SCOPE],
+      consumer_id: "account-someone-else",
+      iat: nowSeconds,
+      nbf: nowSeconds,
+      exp: nowSeconds + 300,
+    };
+    const signingInput = `${Buffer.from(JSON.stringify(header)).toString("base64url")}.${Buffer.from(JSON.stringify(claims)).toString("base64url")}`;
+    const signature = sign(
+      null,
+      Buffer.from(signingInput, "ascii"),
+      createPrivateKey(keyMaterial.activePrivateKey),
+    );
+    const forged = `${signingInput}.${signature.toString("base64url")}`;
+
+    expect(() => verifyServiceCredential(forged, guanlanVerifier(context))).toThrow();
 
     context.db.close();
     await context.app.close();

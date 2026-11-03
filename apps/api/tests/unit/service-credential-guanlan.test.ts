@@ -91,6 +91,16 @@ describe("Guanlan audience contract", () => {
     }
   });
 
+  it("binds the consumer identity to the credential subject", () => {
+    // A consumer that is not the subject would let one account act for another.
+    expect(
+      guanlanServiceCredentialClaimsSchema.safeParse({
+        ...guanlanClaims(),
+        consumer_id: "account-0002",
+      }).success,
+    ).toBe(false);
+  });
+
   it("never lets write replace read or drift out of canonical order", () => {
     for (const scope of [
       [GUANLAN_WRITE_SCOPE],
@@ -203,6 +213,17 @@ describe("Guanlan signing", () => {
       delete input.consumerId;
       issueServiceCredential({ privateKey, keyId: "cloud-auth-2026-11" }, input);
     }, "INVALID_INPUT");
+  });
+
+  it("refuses to stamp a consumer that is not the credential subject", () => {
+    expectIssuanceError(
+      () =>
+        issueServiceCredential(
+          { privateKey, keyId: "cloud-auth-2026-11" },
+          { ...baseInput(), consumerId: "account-0002" },
+        ),
+      "INVALID_INPUT",
+    );
   });
 
   it("refuses to stamp a consumer onto a non-Guanlan audience", () => {

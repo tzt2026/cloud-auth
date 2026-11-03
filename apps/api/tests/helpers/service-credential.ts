@@ -21,11 +21,12 @@ const isolatedDirectories: string[] = [];
 
 /** A throwaway SQLite database + app instance, removed by `disposeIsolatedContexts`. */
 export function createIsolatedServiceCredentialContext(
+  keyMaterial: ServiceCredentialKeyMaterialConfig | null = createTestServiceCredentialKeyMaterial(),
   prefix = "mira-guanlan-credential-",
 ): TestServiceCredentialContext {
   const dir = mkdtempSync(join(tmpdir(), prefix));
   isolatedDirectories.push(dir);
-  return createTestServiceCredentialContext(join(dir, "auth.sqlite"));
+  return createTestServiceCredentialContext(join(dir, "auth.sqlite"), keyMaterial);
 }
 
 export function disposeIsolatedServiceCredentialContexts(): void {

@@ -101,6 +101,11 @@ Guanlan 验证器（`cloud-mcp-guanlan` `src/mcp/auth.ts:62-95`、`src/mcp/confi
 
 Cloud Auth 只读该投影：不创建 Guanlan 账号/消费者行，不存新闻、账本或空间业务数据。
 
+**证据边界（不要混用）**：闸门的**负例**用夹具把 outbox 行摆成 `pending`/`delivering`/`withheld`/`failed`
+或删表；T2 也有一例用夹具 `delivered` 行验证"允许签发"的合同形状。**夹具正例不是投递证据**——真实的
+`pending → delivered` 只有两条：T3 里 dev 自己的 `deliverGuanlanRegistrations` 状态机（本机注入 transport，
+不出网），以及 `gln-013-nonprod-runbook.md` §3 记录的真实 HTTPS 投递（隔离 Worker + 真实 D1）。
+
 ## 5. 签发入口与信任边界
 
 - 入口仍只有 `POST /v1/service-credentials`，需 device-bound Cloud Session；未登录/伪造/过期/撤销/登出/
@@ -134,9 +139,13 @@ Cloud Auth 只读该投影：不创建 Guanlan 账号/消费者行，不存新�
 
 | 层 | 文件 | 覆盖 |
 | --- | --- | --- |
-| T1 | `apps/api/tests/unit/service-credential-guanlan.test.ts` | 常量钉死、claims 正负例（缺/空/超长/带空白 consumer、写优先、重复、跨 audience）、请求 schema、签名 claims 精确值、非 Guanlan audience 拒绝 consumer |
-| T2 | `apps/api/tests/contract/service-credential-guanlan.test.ts` | 未登录/伪造 bearer、客户端自报 consumer/account/device、写优先 scope、投影缺失时 409、读/写 scope 矩阵、跨 audience 验证互拒、响应不含 session |
+| T1 | `apps/api/tests/unit/service-credential-guanlan.test.ts` | 常量钉死、claims 正负例（缺/空/超长/带空白 consumer、写优先、重复、跨 audience）、**consumer 必须等于 `sub`（schema 拒绝 + 签名期 `INVALID_INPUT`）**、请求 schema、签名 claims 精确值、非 Guanlan audience 拒绝 consumer |
+| T2 | `apps/api/tests/contract/service-credential-guanlan.test.ts` | 未登录/伪造 bearer、客户端自报 consumer/account/device、写优先 scope、投影缺失时 409、**手工签名但 `consumer_id ≠ sub` 的令牌被验证器拒绝**、读/写 scope 矩阵、跨 audience 验证互拒、响应不含 session |
 | T3 | `apps/api/tests/integration/guanlan-credential-issuance.test.ts` | 真实 SQLite：`delivered` 才签发、pending/delivering/withheld/failed/无行 409、禁用/拒入/设备撤销/登出/会话过期 401、跨账号 consumer 隔离、只读不提权 |
+
+**正例来源**：只有 T3 的正例走 dev 自己的 `deliverGuanlanRegistrations` 状态机（`pending → 未确认 → pending
+→ 确认 → delivered`）；T2 的"夹具 `delivered` → 200"只验证签发合同形状，**不可当作投递证据**。真实公网投递
+见 `gln-013-nonprod-runbook.md` §3。
 
 命令与结果（本机，Node `v24.9.0`，pnpm `10.34.7`）：
 
@@ -145,11 +154,14 @@ node node_modules/typescript/bin/tsc --noEmit        # apps/api，通过
 node node_modules/vitest/vitest.mjs run tests/unit/service-credential-guanlan.test.ts \
   tests/contract/service-credential-guanlan.test.ts \
   tests/integration/guanlan-credential-issuance.test.ts
-# Test Files 3 passed (3) / Tests 20 passed (20)
+# Test Files 3 passed (3) / Tests 25 passed (25)
 
 pnpm run check   # 仓库根：typecheck + 全量 test
-# api: 43 files / 201 tests passed；web: 12 files / 136 tests passed
+# api: 43 files / 204 tests passed；web: 12 files / 136 tests passed
 ```
+
+真实投递与签发（t23 本机实测，详见 runbook）：隔离 Worker 真实 `delivered`（attempts=2，第 1 次未走代理超时），
+随后签发 `aud=mira:cloud-guanlan`、`scope=guanlan.read`、TTL=300、`consumer_id == sub`、`sha256_12=16d0f84f9b97`。
 
 `pnpm run check` 的完整输出保留在本机 `check-output.log`（不提交，未进入版本库）。
 
@@ -169,16 +181,22 @@ GLN-012 的 outbox **不是授权**，只是"注册是否已持久确认"的投�
 1. **Guanlan 侧 consumer 行缺失**：即使令牌合法，`guanlan_consumers(account_id, consumer_id)` 无行时
    Guanlan 会返回 `guanlan_principal_unavailable`（GLN-014 已记录）。该行由 Guanlan provisioning 负责，
    尚未实现/执行。
-2. **注册投影尚未 delivered**：建号自动写 `pending`，必须经 GLN-012 的真实投递（HTTPS 接收端 + HMAC）才会
-   变成 `delivered`。接收端（GLN-015）与非生产 HTTPS 入口未就绪前，Guanlan 签发一律 409。老账号还需先跑
-   `guanlan-backfill`，否则连行都没有（同样 409，不会默认放行）。
+2. **注册投影已可真实 delivered**：t23 已用隔离 Worker 的 HTTPS 接收端把本机测试账号从 `pending` 推到
+   `delivered` 并签发成功（见 runbook §3）。这不代表生产可用：该 Worker 仍是隔离环境，`CLOUD_AUTH_JWKS_URL`
+   需指向一个公网可达的 JWKS（t23 用只暴露 `/.well-known/jwks.json` 的临时隧道）。
 3. **无真实 `/mcp` 端点**：Guanlan `wrangler.jsonc` 为 `do-not-deploy`、D1 UUID 全 0、`workers_dev:false`。
-4. **无真实 JWKS 取回/轮换观测**：本机无 Cloud Auth dev/test 实例（只有生产 `cloud-auth.tomzlab.cn`，
-   test 非常驻），未向 Guanlan 提供真实 `CLOUD_AUTH_JWKS_URL`。
+   隔离环境的 `/mcp` 已存在，但尚未用它验证本仓令牌（归 t10）。
+4. **JWKS 取回仍是临时方案**：本机实例在 loopback，公网取回依赖临时隧道（见 runbook §5），不是常驻服务；
+   常驻非生产实例/域名仍需单独工作项。
 5. **按值对齐漂移风险**：Guanlan 不 import `@uichat-mira/cloud-auth-contracts`；任一名字变更必须双仓同步。
    本仓以 T1 常量断言固定这些值。
 6. **写权限的产品语义**：`guanlan.write` 目前授权到"本账号消费者账本"。若未来需要运营/审核角色，
    应另立工作项，不在本任务内扩张。
+7. **投影漂移（已知残留风险，不在本卡修）**：outbox `delivered` 只表示"注册已送达"，若之后 Guanlan 侧
+   空间被拆除/账号被删（接收端已会返回 `409 space_state_conflict`），Cloud Auth 仍可能签出令牌，资源侧
+   再拒绝（`guanlan_principal_unavailable` / 空间不存在）。当前是 fail-closed 的"晚失败"，不是越权；
+   需要一个对账（reconcile）工作项：把 Guanlan 的空间状态回写为可判定的撤销信号，或让 Cloud Auth
+   周期校验。**本卡不实现**，只登记。
 
 ## 11. 待确认项（维护者/下游）
 

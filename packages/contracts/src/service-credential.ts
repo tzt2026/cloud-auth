@@ -149,6 +149,10 @@ export const guanlanServiceCredentialClaimsSchema = z
     consumer_id: guanlanConsumerIdSchema,
   })
   .strict()
+  .refine(
+    (claims) => claims.consumer_id === claims.sub,
+    "consumer_id must equal sub for a Guanlan credential",
+  )
   .superRefine(refineTemporalClaims);
 
 export const serviceCredentialClaimsSchema = z.discriminatedUnion("aud", [
