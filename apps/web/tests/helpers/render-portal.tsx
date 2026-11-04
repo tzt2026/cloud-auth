@@ -12,9 +12,10 @@ import { createFakeAuthClient, createFakeHostGrantsClient } from "./host-grants-
 import { createMemoryStorage } from "./session-storage";
 
 /**
- * A persisted Cloud Session for the seeded states. The store never validates the
- * expiry locally (`restore()` asks the service), so a fixed ISO timestamp is
- * enough to make the browser look signed in.
+ * A persisted Cloud Session for the seeded states. `restore()` asks the service,
+ * but `getSessionToken()` also enforces the deadline locally and drops the
+ * persisted session once it passes, so this must stay a live expiry — hence the
+ * run-relative `expiresAt` from `./auth-fixtures`.
  */
 export const storedSession: PersistedCloudSession = {
   sessionToken: "mcs_v1.session.secret",
