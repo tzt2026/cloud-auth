@@ -9,6 +9,12 @@ type AssociatedService = {
 
 const services: readonly AssociatedService[] = [
   {
+    name: "Cloud Agent · 烤派",
+    description: "飞书、企业微信、定时研究与云端观澜",
+    detail: "由 Mira Cloud Account 统一管理服务状态、研究计划和运行记录。",
+    href: "/account/services/cloud-agent",
+  },
+  {
     name: "DC 控制台",
     description: "广州服务器 · Desktop Commander",
     detail: "查看运行状态，管理单次启停与资源策略。",
