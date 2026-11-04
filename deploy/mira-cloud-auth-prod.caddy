@@ -5,6 +5,15 @@ cloud-auth.tomzlab.cn {
     reverse_proxy 127.0.0.1:8788
   }
 
+  # Owner-only Cloud Agent control. Strip /agent-control before forwarding;
+  # never proxy Cloud Pi's unauthenticated internal 8787 management API.
+  handle_path /agent-control/* {
+    header Cache-Control "no-store"
+    header X-Frame-Options "DENY"
+    header X-Content-Type-Options "nosniff"
+    reverse_proxy 127.0.0.1:8793
+  }
+
   # Keep this origin's account session. Non-root backend validates every action.
   @dc_root path /dc
   redir @dc_root /dc/ 308
