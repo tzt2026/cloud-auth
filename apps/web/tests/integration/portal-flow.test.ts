@@ -15,7 +15,10 @@ const screenshotDir = join(webRoot, "coverage", "screenshots");
 const password = "correct horse battery staple";
 const newPassword = "another strong replacement passphrase";
 const account = { id: "account-1", username: "pilot" } as const;
-const expiresAt = "2026-11-01T00:00:00.000Z";
+
+// The Portal drops a persisted Cloud Session once its deadline passes, so the
+// fake auth server must issue a session that is still live when the run starts.
+const expiresAt = new Date(Date.now() + 60 * 60_000).toISOString();
 
 const viewports = [
   { name: "desktop", width: 1440, height: 900 },
@@ -199,6 +202,11 @@ for (const viewport of viewports) {
         // Back to the overview so the expired-session screenshot keeps a stable URL.
         await servicesRail.getByRole("link", { name: "概览" }).click();
         await page.getByRole("heading", { level: 1, name: "我的账户" }).waitFor();
+        // Let the overview's own grants read settle before expiring the session.
+        // A request still in flight would answer 401 after `expireSessions()` and
+        // clear the persisted session before the reload, so `restore()` would see
+        // no session at all and the recovery copy would lose the expiry detail.
+        await page.getByText("Desktop Host").waitFor();
 
         authServer.expireSessions();
         await page.reload({ waitUntil: "load" });
