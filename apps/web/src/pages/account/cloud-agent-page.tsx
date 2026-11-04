@@ -40,7 +40,7 @@ async function agentRequest<T>(
   try {
     response = await fetch("/agent-control" + path, {
       method: init.method ?? "GET",
-      signal: init.signal,
+      ...(init.signal ? { signal: init.signal } : {}),
       headers: {
         authorization: "Bearer " + token,
         accept: "application/json",
@@ -87,7 +87,7 @@ export function CloudAgentPage() {
     if (!token) return;
     try {
       const [snapshot, plans, history] = await Promise.all([
-        agentRequest<AgentStatus>(token, "/v1/status", { signal }),
+        agentRequest<AgentStatus>(token, "/v1/status", { ...(signal ? { signal } : {}) }),
         agentRequest<{ schedules: Schedule[] }>(token, "/v1/schedules", { signal }),
         agentRequest<{ runs: ResearchRun[] }>(token, "/v1/runs?limit=10", { signal }),
       ]);
