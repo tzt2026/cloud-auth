@@ -4,6 +4,7 @@ import { PublicLayout } from "@/app/root-layout";
 import { HomePage } from "@/pages/home-page";
 import { DevicesPage } from "@/pages/account/devices-page";
 import { DcControlPage } from "@/pages/account/dc-control-page";
+import { CloudAgentPage } from "@/pages/account/cloud-agent-page";
 import { OverviewPage } from "@/pages/account/overview-page";
 import { SecurityPage } from "@/pages/account/security-page";
 import { ServicesPage } from "@/pages/account/services-page";
@@ -61,6 +62,10 @@ export const routes: RouteObject[] = [
       {
         path: "services/dc",
         element: <DcControlPage />,
+      },
+      {
+        path: "services/cloud-agent",
+        element: <CloudAgentPage />,
       },
       {
         path: "*",
