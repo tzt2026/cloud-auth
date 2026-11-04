@@ -157,9 +157,7 @@ export function CloudAgentPage() {
     if (busy) return;
     if (
       action === "run-now" &&
-      !window.confirm(
-        "现在执行这项研究？会真实调用模型、工具，并可能向已配置目标发送消息。",
-      )
+      !window.confirm("现在执行这项研究？会真实调用模型、工具，并可能向已配置目标发送消息。")
     )
       return;
     const token = getSessionToken();
@@ -167,16 +165,10 @@ export function CloudAgentPage() {
     setBusy(id);
     setNotice("");
     try {
-      await agentRequest<unknown>(
-        token,
-        "/v1/schedules/" + encodeURIComponent(id) + "/" + action,
-        { method: "POST" },
-      );
-      setNotice(
-        action === "run-now"
-          ? "执行已完成，结果以运行记录为准。"
-          : "计划状态已更新。",
-      );
+      await agentRequest<unknown>(token, "/v1/schedules/" + encodeURIComponent(id) + "/" + action, {
+        method: "POST",
+      });
+      setNotice(action === "run-now" ? "执行已完成，结果以运行记录为准。" : "计划状态已更新。");
       await refresh();
     } catch (cause) {
       if (cause instanceof AgentError && cause.status === 401) {
@@ -223,9 +215,7 @@ export function CloudAgentPage() {
             </Button>
           </div>
           <p className="dc-primary-state">
-            <strong>
-              {loading ? "正在读取…" : status ? "控制接口在线" : "尚未连接"}
-            </strong>
+            <strong>{loading ? "正在读取…" : status ? "控制接口在线" : "尚未连接"}</strong>
           </p>
           <dl className="console-facts dc-facts">
             <div>
@@ -245,9 +235,7 @@ export function CloudAgentPage() {
               <dd>{dateLabel(status?.checkedAt)}</dd>
             </div>
           </dl>
-          <p className="dc-muted">
-            管理接口在线不等于飞书、企微及观澜全部通过真实服务验收。
-          </p>
+          <p className="dc-muted">管理接口在线不等于飞书、企微及观澜全部通过真实服务验收。</p>
         </section>
         <section className="dc-panel" aria-labelledby="agent-schedules-heading">
           <div className="dc-panel-head">
@@ -262,9 +250,7 @@ export function CloudAgentPage() {
               {schedules.map((s) => (
                 <li className="cloud-service-row" key={s.scheduleId}>
                   <div className="cloud-service-row-head">
-                    <span className="cloud-service-name">
-                      {s.name || s.scheduleId}
-                    </span>
+                    <span className="cloud-service-name">{s.name || s.scheduleId}</span>
                     <span className="cloud-service-pill">{s.status}</span>
                   </div>
                   <p className="cloud-service-detail">
@@ -278,10 +264,7 @@ export function CloudAgentPage() {
                         size="sm"
                         disabled={busy !== null}
                         onClick={() =>
-                          void operate(
-                            s.scheduleId,
-                            s.status === "active" ? "pause" : "enable",
-                          )
+                          void operate(s.scheduleId, s.status === "active" ? "pause" : "enable")
                         }
                       >
                         {s.status === "active" ? "暂停" : "启用"}
@@ -313,9 +296,7 @@ export function CloudAgentPage() {
               {runs.map((r) => (
                 <li className="cloud-service-row" key={r.runId}>
                   <div className="cloud-service-row-head">
-                    <span className="cloud-service-name">
-                      {r.chat?.channel ?? "定时研究"}
-                    </span>
+                    <span className="cloud-service-name">{r.chat?.channel ?? "定时研究"}</span>
                     <span className="cloud-service-pill">{r.status}</span>
                   </div>
                   <p className="cloud-service-detail">
