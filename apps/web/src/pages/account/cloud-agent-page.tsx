@@ -113,11 +113,15 @@ export function CloudAgentPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void refresh(controller.signal);
+    // Fetch after the initial effect installs its cancellation scope. Avoid
+    // a synchronous setState chain during effect setup.
+    const initial = window.setTimeout(() => {
+      void refresh(controller.signal);
+    }, 0);
     const interval = window.setInterval(() => {
       if (!document.hidden && busy === null) void refresh();
     }, 15_000);
-    return () => { controller.abort(); window.clearInterval(interval); };
+    return () => { controller.abort(); window.clearTimeout(initial); window.clearInterval(interval); };
   }, [refresh, busy]);
 
   async function operate(id: string, action: "pause" | "enable" | "run-now") {
