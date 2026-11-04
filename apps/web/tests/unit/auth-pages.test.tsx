@@ -275,7 +275,7 @@ describe("auth-backed route components", () => {
     expect(within(counts).getByText("有效授权")).toBeInTheDocument();
     expect(within(counts).getAllByRole("listitem")).toHaveLength(3);
 
-    expect(screen.getByText("3 项服务 · 2 项尚未接入")).toBeInTheDocument();
+    expect(screen.getByText("4 项服务 · 2 项尚未接入")).toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 2, name: "关联服务" })).toBeInTheDocument();
   });
 
@@ -330,14 +330,21 @@ describe("auth-backed route components", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "关联服务" })).toBeInTheDocument();
 
     const services = screen.getByRole("list");
-    expect(within(services).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(services).getAllByRole("listitem")).toHaveLength(4);
     expect(within(services).getByText("DC 控制台")).toBeInTheDocument();
+    expect(within(services).getByText("Cloud Agent · 烤派")).toBeInTheDocument();
+    expect(within(services).getByRole("link", { name: "进入 Cloud Agent · 烤派" })).toHaveAttribute(
+      "href",
+      "/account/services/cloud-agent",
+    );
     expect(within(services).getByText("Cloud Shiyan")).toBeInTheDocument();
     expect(within(services).getByText("Hosted Relay")).toBeInTheDocument();
     expect(within(services).getAllByText("尚未接入")).toHaveLength(2);
 
     // The migrated DC page must stay inside the same account route and session.
-    const dcLink = within(services).getByRole("link", { name: "进入 DC 控制台" });
+    const dcLink = within(services).getByRole("link", {
+      name: "进入 DC 控制台",
+    });
     expect(dcLink).toHaveAttribute("href", "/account/services/dc");
     expect(dcLink).not.toHaveAttribute("target");
 
