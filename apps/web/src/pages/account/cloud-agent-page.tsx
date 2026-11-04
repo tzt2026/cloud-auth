@@ -88,8 +88,8 @@ export function CloudAgentPage() {
     try {
       const [snapshot, plans, history] = await Promise.all([
         agentRequest<AgentStatus>(token, "/v1/status", { ...(signal ? { signal } : {}) }),
-        agentRequest<{ schedules: Schedule[] }>(token, "/v1/schedules", { signal }),
-        agentRequest<{ runs: ResearchRun[] }>(token, "/v1/runs?limit=10", { signal }),
+        agentRequest<{ schedules: Schedule[] }>(token, "/v1/schedules", { ...(signal ? { signal } : {}) }),
+        agentRequest<{ runs: ResearchRun[] }>(token, "/v1/runs?limit=10", { ...(signal ? { signal } : {}) }),
       ]);
       if (signal?.aborted) return;
       setStatus(snapshot);
