@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import {
   CLOUD_RELAY_TRANSPORT_AUDIENCE,
   CLOUD_SHIYAN_AUDIENCE,
+  CLOUD_WHO_YOU_AUDIENCE,
   RELAY_TRANSPORT_SCOPE,
   SERVICE_CREDENTIAL_ISSUER,
   SHIYAN_AUTHENTICATE_SCOPE,
+  WHOYOU_MAIL_SEND_SCOPE,
+  WHOYOU_READ_SCOPE,
 } from "@uichat-mira/cloud-auth-contracts";
 import {
   ServiceCredentialVerificationError,
@@ -460,5 +463,124 @@ describe("service credential verification contract", () => {
       () => verifyServiceCredential(issueRelayToken(), relayVerifier({ now: () => new Date(NaN) })),
       "INVALID_VERIFIER_CONFIG",
     );
+  });
+});
+
+describe("Who You credential verification contract", () => {
+  const confirmation = {
+    actor: "user" as const,
+    draft_id: "dr_0123456789abcdef",
+    draft_version: 7,
+    content_hash: "a".repeat(64),
+    nonce: "nonce-0123456789abcdef",
+  };
+
+  function whoYouClaims(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      iss: SERVICE_CREDENTIAL_ISSUER,
+      sub: ACCOUNT_ID,
+      device_id: DEVICE_ID,
+      aud: CLOUD_WHO_YOU_AUDIENCE,
+      scope: [WHOYOU_READ_SCOPE],
+      consumer_id: ACCOUNT_ID,
+      iat: FIXED_NOW_SECONDS,
+      nbf: FIXED_NOW_SECONDS,
+      exp: FIXED_NOW_SECONDS + 300,
+      ...overrides,
+    };
+  }
+
+  function whoYouVerifier(): ServiceCredentialVerifierConfig {
+    return {
+      issuer: SERVICE_CREDENTIAL_ISSUER,
+      audience: CLOUD_WHO_YOU_AUDIENCE,
+      publicKeys: new Map([[KEY_ID, publicKey]]),
+      now: () => FIXED_NOW,
+    };
+  }
+
+  it("verifies a read credential and returns the Who You consumer", () => {
+    const token = issueServiceCredential(
+      { privateKey, keyId: KEY_ID, now: () => FIXED_NOW },
+      {
+        accountId: ACCOUNT_ID,
+        deviceId: DEVICE_ID,
+        audience: CLOUD_WHO_YOU_AUDIENCE,
+        scope: [WHOYOU_READ_SCOPE],
+        consumerId: ACCOUNT_ID,
+      },
+    );
+
+    const verified = verifyServiceCredential(token, whoYouVerifier());
+    expect(verified.claims).toMatchObject({
+      aud: CLOUD_WHO_YOU_AUDIENCE,
+      consumer_id: ACCOUNT_ID,
+      scope: [WHOYOU_READ_SCOPE],
+    });
+    expect("confirmation" in verified.claims).toBe(false);
+  });
+
+  it("verifies a send credential bound to one draft revision", () => {
+    const token = issueServiceCredential(
+      { privateKey, keyId: KEY_ID, now: () => FIXED_NOW },
+      {
+        accountId: ACCOUNT_ID,
+        deviceId: DEVICE_ID,
+        audience: CLOUD_WHO_YOU_AUDIENCE,
+        scope: [WHOYOU_MAIL_SEND_SCOPE],
+        consumerId: ACCOUNT_ID,
+        confirmation,
+      },
+    );
+
+    const verified = verifyServiceCredential(token, whoYouVerifier());
+    expect(verified.claims).toMatchObject({
+      scope: [WHOYOU_MAIL_SEND_SCOPE],
+      confirmation,
+    });
+  });
+
+  it("keeps Who You audience non-interchangeable with Shiyan", () => {
+    const token = issueServiceCredential(
+      { privateKey, keyId: KEY_ID, now: () => FIXED_NOW },
+      {
+        accountId: ACCOUNT_ID,
+        deviceId: DEVICE_ID,
+        audience: CLOUD_WHO_YOU_AUDIENCE,
+        scope: [WHOYOU_READ_SCOPE],
+        consumerId: ACCOUNT_ID,
+      },
+    );
+
+    expectVerificationError(
+      () => verifyServiceCredential(token, shiyanVerifier()),
+      "AUDIENCE_MISMATCH",
+    );
+    expectVerificationError(
+      () => verifyServiceCredential(issueShiyanToken(), whoYouVerifier()),
+      "AUDIENCE_MISMATCH",
+    );
+  });
+
+  it("rejects broken draft binding and consumer claims", () => {
+    for (const claims of [
+      whoYouClaims({ consumer_id: "account-0002" }),
+      whoYouClaims({ consumer_id: undefined }),
+      whoYouClaims({ scope: [WHOYOU_MAIL_SEND_SCOPE] }),
+      whoYouClaims({
+        confirmation: { ...confirmation, draft_version: 0 },
+      }),
+      whoYouClaims({
+        confirmation: { ...confirmation, content_hash: "A".repeat(64) },
+      }),
+      whoYouClaims({
+        confirmation: { ...confirmation, nonce: "short" },
+      }),
+    ]) {
+      expectVerificationError(
+        () => verifyServiceCredential(signRawToken(header(), claims, privateKey), whoYouVerifier()),
+        "INVALID_CLAIMS",
+      );
+    }
   });
 });

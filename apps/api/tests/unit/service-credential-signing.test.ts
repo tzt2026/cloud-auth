@@ -3,9 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   CLOUD_RELAY_TRANSPORT_AUDIENCE,
   CLOUD_SHIYAN_AUDIENCE,
+  CLOUD_WHO_YOU_AUDIENCE,
   RELAY_TRANSPORT_SCOPE,
   SERVICE_CREDENTIAL_ISSUER,
   SHIYAN_AUTHENTICATE_SCOPE,
+  WHOYOU_MAIL_SEND_SCOPE,
+  WHOYOU_MAIL_WRITE_SCOPE,
+  WHOYOU_READ_SCOPE,
   type ServiceCredentialAudience,
 } from "@uichat-mira/cloud-auth-contracts";
 import {
@@ -236,6 +240,133 @@ describe("service credential issuance", () => {
           },
         ),
       "INVALID_SIGNING_KEY",
+    );
+  });
+});
+
+describe("Who You service credential issuance", () => {
+  const { privateKey } = generateKeyPairSync("ed25519");
+  const config = { privateKey, keyId: "cloud-auth-2026-10", now: () => FIXED_NOW };
+  const confirmation = {
+    actor: "user" as const,
+    draft_id: "dr_0123456789abcdef",
+    draft_version: 7,
+    content_hash: "a".repeat(64),
+    nonce: "nonce-0123456789abcdef",
+  };
+
+  it("derives the Who You consumer from the account and signs read scope", () => {
+    const token = issueServiceCredential(config, {
+      accountId: ACCOUNT_ID,
+      deviceId: DEVICE_ID,
+      audience: CLOUD_WHO_YOU_AUDIENCE,
+      scope: [WHOYOU_READ_SCOPE],
+      consumerId: ACCOUNT_ID,
+    });
+
+    expect(decodeSegment(token.split(".")[1]!)).toEqual({
+      iss: SERVICE_CREDENTIAL_ISSUER,
+      sub: ACCOUNT_ID,
+      device_id: DEVICE_ID,
+      aud: CLOUD_WHO_YOU_AUDIENCE,
+      scope: [WHOYOU_READ_SCOPE],
+      consumer_id: ACCOUNT_ID,
+      iat: FIXED_NOW_SECONDS,
+      nbf: FIXED_NOW_SECONDS,
+      exp: FIXED_NOW_SECONDS + DEFAULT_SERVICE_CREDENTIAL_TTL_SECONDS,
+    });
+  });
+
+  it("signs the read+write scope set in canonical order", () => {
+    const token = issueServiceCredential(config, {
+      accountId: ACCOUNT_ID,
+      deviceId: DEVICE_ID,
+      audience: CLOUD_WHO_YOU_AUDIENCE,
+      scope: [WHOYOU_READ_SCOPE, WHOYOU_MAIL_WRITE_SCOPE],
+      consumerId: ACCOUNT_ID,
+    });
+
+    expect(decodeSegment(token.split(".")[1]!)).toMatchObject({
+      scope: [WHOYOU_READ_SCOPE, WHOYOU_MAIL_WRITE_SCOPE],
+      consumer_id: ACCOUNT_ID,
+    });
+  });
+
+  it("signs a standalone send credential bound to one draft revision", () => {
+    const token = issueServiceCredential(config, {
+      accountId: ACCOUNT_ID,
+      deviceId: DEVICE_ID,
+      audience: CLOUD_WHO_YOU_AUDIENCE,
+      scope: [WHOYOU_MAIL_SEND_SCOPE],
+      consumerId: ACCOUNT_ID,
+      confirmation,
+    });
+
+    const payload = decodeSegment(token.split(".")[1]!);
+    expect(payload).toMatchObject({
+      aud: CLOUD_WHO_YOU_AUDIENCE,
+      scope: [WHOYOU_MAIL_SEND_SCOPE],
+      consumer_id: ACCOUNT_ID,
+      confirmation,
+    });
+  });
+
+  it("rejects send without confirmation and confirmation without send", () => {
+    const invalidInputs: IssueServiceCredentialInput[] = [
+      {
+        accountId: ACCOUNT_ID,
+        deviceId: DEVICE_ID,
+        audience: CLOUD_WHO_YOU_AUDIENCE,
+        scope: [WHOYOU_MAIL_SEND_SCOPE],
+        consumerId: ACCOUNT_ID,
+      },
+      {
+        accountId: ACCOUNT_ID,
+        deviceId: DEVICE_ID,
+        audience: CLOUD_WHO_YOU_AUDIENCE,
+        scope: [WHOYOU_READ_SCOPE],
+        consumerId: ACCOUNT_ID,
+        confirmation,
+      },
+    ];
+    for (const input of invalidInputs) {
+      expectIssuanceError(
+        () => issueServiceCredential(config, input),
+        "INVALID_INPUT",
+      );
+    }
+  });
+
+  it("rejects malformed confirmations and non-Who You audiences", () => {
+    for (const bad of [
+      { ...confirmation, draft_version: 0 },
+      { ...confirmation, content_hash: "A".repeat(64) },
+      { ...confirmation, nonce: "short" },
+    ]) {
+      expectIssuanceError(
+        () =>
+          issueServiceCredential(config, {
+            accountId: ACCOUNT_ID,
+            deviceId: DEVICE_ID,
+            audience: CLOUD_WHO_YOU_AUDIENCE,
+            scope: [WHOYOU_MAIL_SEND_SCOPE],
+            consumerId: ACCOUNT_ID,
+            confirmation: bad,
+          }),
+        "INVALID_INPUT",
+      );
+    }
+
+    expectIssuanceError(
+      () =>
+        issueServiceCredential(config, {
+          accountId: ACCOUNT_ID,
+          deviceId: DEVICE_ID,
+          audience: CLOUD_SHIYAN_AUDIENCE,
+          scope: [SHIYAN_AUTHENTICATE_SCOPE],
+          confirmation,
+        }),
+      "INVALID_INPUT",
     );
   });
 });

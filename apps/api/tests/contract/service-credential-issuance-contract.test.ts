@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  CLOUD_WHO_YOU_AUDIENCE,
   CLOUD_RELAY_TRANSPORT_AUDIENCE,
   CLOUD_SHIYAN_AUDIENCE,
+  WHOYOU_MAIL_WRITE_SCOPE,
+  WHOYOU_READ_SCOPE,
   issuedServiceCredentialSchema,
   serviceCredentialErrorEnvelopeSchema,
   serviceCredentialJwksSchema,
@@ -110,6 +113,61 @@ describe("service credential HTTP contract", () => {
       { error: { code: "SERVICE_CREDENTIAL_INVALID_REQUEST", message: "message", extra: 1 } },
     ]) {
       expect(serviceCredentialErrorEnvelopeSchema.safeParse(invalid).success).toBe(false);
+    }
+  });
+
+  it("accepts only the canonical Who You request shapes", () => {
+    for (const body of [
+      { audience: CLOUD_WHO_YOU_AUDIENCE },
+      { audience: CLOUD_WHO_YOU_AUDIENCE, scopes: [WHOYOU_READ_SCOPE] },
+      {
+        audience: CLOUD_WHO_YOU_AUDIENCE,
+        scopes: [WHOYOU_READ_SCOPE, WHOYOU_MAIL_WRITE_SCOPE],
+      },
+      {
+        audience: CLOUD_WHO_YOU_AUDIENCE,
+        confirmation: {
+          actor: "user",
+          draft_id: "dr_0123456789abcdef",
+          draft_version: 7,
+          content_hash: "a".repeat(64),
+          nonce: "nonce-0123456789abcdef",
+        },
+      },
+    ]) {
+      expect(serviceCredentialRequestSchema.parse(body)).toEqual(body);
+    }
+
+    for (const body of [
+      { audience: CLOUD_WHO_YOU_AUDIENCE, scopes: [] },
+      { audience: CLOUD_WHO_YOU_AUDIENCE, scopes: [WHOYOU_MAIL_WRITE_SCOPE] },
+      { audience: CLOUD_WHO_YOU_AUDIENCE, scopes: [WHOYOU_READ_SCOPE, WHOYOU_READ_SCOPE] },
+      { audience: CLOUD_WHO_YOU_AUDIENCE, scopes: ["whoyou.mail.send"] },
+      {
+        audience: CLOUD_WHO_YOU_AUDIENCE,
+        scopes: [WHOYOU_READ_SCOPE],
+        confirmation: {
+          actor: "user",
+          draft_id: "dr_0123456789abcdef",
+          draft_version: 7,
+          content_hash: "a".repeat(64),
+          nonce: "nonce-0123456789abcdef",
+        },
+      },
+      {
+        audience: CLOUD_WHO_YOU_AUDIENCE,
+        confirmation: {
+          actor: "device",
+          draft_id: "dr_0123456789abcdef",
+          draft_version: 7,
+          content_hash: "a".repeat(64),
+          nonce: "nonce-0123456789abcdef",
+        },
+      },
+      { audience: CLOUD_WHO_YOU_AUDIENCE, consumer_id: "account-0001" },
+      { audience: CLOUD_WHO_YOU_AUDIENCE, accountId: "account-0001" },
+    ]) {
+      expect(serviceCredentialRequestSchema.safeParse(body).success).toBe(false);
     }
   });
 });

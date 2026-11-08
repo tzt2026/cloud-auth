@@ -12,9 +12,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   CLOUD_RELAY_TRANSPORT_AUDIENCE,
   CLOUD_SHIYAN_AUDIENCE,
+  CLOUD_WHO_YOU_AUDIENCE,
   RELAY_TRANSPORT_SCOPE,
   SERVICE_CREDENTIAL_ISSUER,
   SHIYAN_AUTHENTICATE_SCOPE,
+  WHOYOU_MAIL_SEND_SCOPE,
+  WHOYOU_MAIL_WRITE_SCOPE,
+  WHOYOU_READ_SCOPE,
   issuedServiceCredentialSchema,
   serviceCredentialErrorEnvelopeSchema,
   serviceCredentialJwksSchema,
@@ -104,6 +108,16 @@ function relayVerifier(
     audience: CLOUD_RELAY_TRANSPORT_AUDIENCE,
     publicKeys: trustedKeys(context),
     expectedRelay: { room, role },
+  };
+}
+
+function whoYouVerifier(
+  context: TestServiceCredentialContext,
+): ServiceCredentialVerifierConfig {
+  return {
+    issuer: SERVICE_CREDENTIAL_ISSUER,
+    audience: CLOUD_WHO_YOU_AUDIENCE,
+    publicKeys: trustedKeys(context),
   };
 }
 
@@ -515,6 +529,78 @@ describe("authenticated service credential issuance", () => {
     expect(
       verifyServiceCredential(oldToken, shiyanVerifier(context)).claims.sub,
     ).toBe(login.account.id);
+
+    context.db.close();
+    await context.app.close();
+  });
+
+  it("issues Who You read, draft-write and draft-bound send credentials", async () => {
+    const context = createContext();
+    await context.service.provisionAccount("alice", password);
+    const login = await context.service.login("alice", password, "127.0.0.1");
+    const device = await registerDevice(context, login.sessionToken);
+    const confirmation = {
+      actor: "user",
+      draft_id: "dr_0123456789abcdef",
+      draft_version: 7,
+      content_hash: "a".repeat(64),
+      nonce: "nonce-0123456789abcdef",
+    };
+
+    const readResponse = await issue(context, login.sessionToken, {
+      audience: CLOUD_WHO_YOU_AUDIENCE,
+    });
+    expect(readResponse.statusCode).toBe(200);
+    expect(readResponse.body).not.toContain(login.sessionToken);
+    const readVerified = verifyServiceCredential(
+      issuedServiceCredentialSchema.parse(readResponse.json()).token,
+      whoYouVerifier(context),
+    );
+    expect(readVerified.claims).toMatchObject({
+      sub: login.account.id,
+      device_id: device.id,
+      aud: CLOUD_WHO_YOU_AUDIENCE,
+      consumer_id: login.account.id,
+      scope: [WHOYOU_READ_SCOPE],
+    });
+    expect("confirmation" in readVerified.claims).toBe(false);
+
+    const writeResponse = await issue(context, login.sessionToken, {
+      audience: CLOUD_WHO_YOU_AUDIENCE,
+      scopes: [WHOYOU_READ_SCOPE, WHOYOU_MAIL_WRITE_SCOPE],
+    });
+    expect(writeResponse.statusCode).toBe(200);
+    expect(
+      verifyServiceCredential(
+        issuedServiceCredentialSchema.parse(writeResponse.json()).token,
+        whoYouVerifier(context),
+      ).claims,
+    ).toMatchObject({ scope: [WHOYOU_READ_SCOPE, WHOYOU_MAIL_WRITE_SCOPE] });
+
+    const sendResponse = await issue(context, login.sessionToken, {
+      audience: CLOUD_WHO_YOU_AUDIENCE,
+      confirmation,
+    });
+    expect(sendResponse.statusCode).toBe(200);
+    const sendVerified = verifyServiceCredential(
+      issuedServiceCredentialSchema.parse(sendResponse.json()).token,
+      whoYouVerifier(context),
+    );
+    expect(sendVerified.claims).toMatchObject({
+      consumer_id: login.account.id,
+      scope: [WHOYOU_MAIL_SEND_SCOPE],
+      confirmation,
+    });
+
+    const rejected = await issue(context, login.sessionToken, {
+      audience: CLOUD_WHO_YOU_AUDIENCE,
+      scopes: [WHOYOU_READ_SCOPE],
+      confirmation,
+    });
+    expect(rejected.statusCode).toBe(400);
+    expect(serviceCredentialErrorEnvelopeSchema.parse(rejected.json()).error.code).toBe(
+      "SERVICE_CREDENTIAL_INVALID_REQUEST",
+    );
 
     context.db.close();
     await context.app.close();

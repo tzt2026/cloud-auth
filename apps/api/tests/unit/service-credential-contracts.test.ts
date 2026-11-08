@@ -2,14 +2,19 @@ import { describe, expect, it } from "vitest";
 import {
   CLOUD_RELAY_TRANSPORT_AUDIENCE,
   CLOUD_SHIYAN_AUDIENCE,
+  CLOUD_WHO_YOU_AUDIENCE,
   RELAY_TRANSPORT_SCOPE,
   SERVICE_CREDENTIAL_ISSUER,
   SHIYAN_AUTHENTICATE_SCOPE,
+  WHOYOU_MAIL_SEND_SCOPE,
+  WHOYOU_MAIL_WRITE_SCOPE,
+  WHOYOU_READ_SCOPE,
   relayServiceCredentialClaimsSchema,
   relayTicketContextSchema,
   serviceCredentialClaimsSchema,
   serviceCredentialJwtHeaderSchema,
   shiyanServiceCredentialClaimsSchema,
+  whoYouServiceCredentialClaimsSchema,
 } from "@uichat-mira/cloud-auth-contracts";
 
 const temporal = { iat: 1_790_000_000, nbf: 1_790_000_000, exp: 1_790_000_300 };
@@ -120,5 +125,105 @@ describe("service credential shared contract", () => {
     ]) {
       expect(relayTicketContextSchema.safeParse(context).success).toBe(false);
     }
+  });
+});
+
+const whoYouReadClaims = {
+  iss: SERVICE_CREDENTIAL_ISSUER,
+  sub: "account-0001",
+  device_id: "device-0001",
+  aud: CLOUD_WHO_YOU_AUDIENCE,
+  scope: [WHOYOU_READ_SCOPE],
+  consumer_id: "account-0001",
+  ...temporal,
+};
+
+const whoYouWriteClaims = {
+  ...whoYouReadClaims,
+  scope: [WHOYOU_READ_SCOPE, WHOYOU_MAIL_WRITE_SCOPE],
+};
+
+const whoYouSendClaims = {
+  ...whoYouReadClaims,
+  scope: [WHOYOU_MAIL_SEND_SCOPE],
+  confirmation: {
+    actor: "user",
+    draft_id: "dr_0123456789abcdef",
+    draft_version: 7,
+    content_hash: "a".repeat(64),
+    nonce: "nonce-0123456789abcdef",
+  },
+};
+
+describe("Who You service credential contract", () => {
+  it("pins Who You audience and scope literals", () => {
+    expect(CLOUD_WHO_YOU_AUDIENCE).toBe("mira:who-you");
+    expect(WHOYOU_READ_SCOPE).toBe("whoyou.read");
+    expect(WHOYOU_MAIL_WRITE_SCOPE).toBe("whoyou.mail.write");
+    expect(WHOYOU_MAIL_SEND_SCOPE).toBe("whoyou.mail.send");
+  });
+
+  it("accepts the canonical read, write and send shapes", () => {
+    for (const claims of [whoYouReadClaims, whoYouWriteClaims, whoYouSendClaims]) {
+      expect(serviceCredentialClaimsSchema.parse(claims)).toEqual(claims);
+      expect(whoYouServiceCredentialClaimsSchema.parse(claims)).toEqual(claims);
+    }
+  });
+
+  it("rejects scope sets that are not canonical", () => {
+    for (const payload of [
+      { ...whoYouReadClaims, scope: [] },
+      { ...whoYouReadClaims, scope: [WHOYOU_MAIL_WRITE_SCOPE, WHOYOU_READ_SCOPE] },
+      { ...whoYouReadClaims, scope: [WHOYOU_READ_SCOPE, WHOYOU_MAIL_WRITE_SCOPE, WHOYOU_MAIL_SEND_SCOPE] },
+      { ...whoYouReadClaims, scope: [WHOYOU_MAIL_SEND_SCOPE, WHOYOU_READ_SCOPE] },
+      { ...whoYouWriteClaims, scope: [WHOYOU_MAIL_WRITE_SCOPE] },
+    ]) {
+      expect(whoYouServiceCredentialClaimsSchema.safeParse(payload).success).toBe(false);
+    }
+  });
+
+  it("requires a confirmation for send and forbids it elsewhere", () => {
+    const { confirmation: confirmationValue } = whoYouSendClaims;
+    for (const payload of [
+      { ...whoYouSendClaims, confirmation: undefined },
+      { ...whoYouReadClaims, confirmation: confirmationValue },
+      { ...whoYouWriteClaims, confirmation: confirmationValue },
+    ]) {
+      expect(whoYouServiceCredentialClaimsSchema.safeParse(payload).success).toBe(false);
+    }
+  });
+
+  it("rejects malformed draft binding and nonce values", () => {
+    const confirmation = whoYouSendClaims.confirmation;
+    for (const payload of [
+      { ...whoYouSendClaims, consumer_id: "account-0002" },
+      { ...whoYouSendClaims, confirmation: { ...confirmation, actor: "device" } },
+      { ...whoYouSendClaims, confirmation: { ...confirmation, draft_id: "draft with spaces" } },
+      { ...whoYouSendClaims, confirmation: { ...confirmation, draft_id: "d".repeat(129) } },
+      { ...whoYouSendClaims, confirmation: { ...confirmation, draft_version: 0 } },
+      { ...whoYouSendClaims, confirmation: { ...confirmation, draft_version: 1.5 } },
+      { ...whoYouSendClaims, confirmation: { ...confirmation, content_hash: "A".repeat(64) } },
+      { ...whoYouSendClaims, confirmation: { ...confirmation, content_hash: "a".repeat(63) } },
+      { ...whoYouSendClaims, confirmation: { ...confirmation, nonce: "short" } },
+      { ...whoYouSendClaims, confirmation: { ...confirmation, nonce: "nonce with spaces" } },
+      { ...whoYouSendClaims, confirmation: { ...confirmation, extra: true } },
+    ]) {
+      expect(whoYouServiceCredentialClaimsSchema.safeParse(payload).success).toBe(false);
+    }
+  });
+
+  it("keeps Who You credentials non-interchangeable with other audiences", () => {
+    expect(
+      whoYouServiceCredentialClaimsSchema.safeParse({
+        ...whoYouReadClaims,
+        aud: CLOUD_SHIYAN_AUDIENCE,
+      }).success,
+    ).toBe(false);
+    expect(
+      serviceCredentialClaimsSchema.safeParse({
+        ...shiyanClaims,
+        consumer_id: "account-0001",
+      }).success,
+    ).toBe(false);
   });
 });

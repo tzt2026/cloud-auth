@@ -1,10 +1,14 @@
 import {
   CLOUD_GUANLAN_AUDIENCE,
   CLOUD_RELAY_TRANSPORT_AUDIENCE,
+  CLOUD_WHO_YOU_AUDIENCE,
   GUANLAN_READ_SCOPE,
   GUANLAN_WRITE_SCOPE,
   RELAY_TRANSPORT_SCOPE,
   SHIYAN_AUTHENTICATE_SCOPE,
+  WHOYOU_MAIL_SEND_SCOPE,
+  WHOYOU_MAIL_WRITE_SCOPE,
+  WHOYOU_READ_SCOPE,
   type IssuedServiceCredential,
   type ServiceCredentialJwks,
   type ServiceCredentialRequest,
@@ -37,6 +41,15 @@ function scopeForRequest(request: ServiceCredentialRequest): ServiceCredentialSc
     return requested.includes(GUANLAN_WRITE_SCOPE)
       ? [GUANLAN_READ_SCOPE, GUANLAN_WRITE_SCOPE]
       : [GUANLAN_READ_SCOPE];
+  }
+  if (request.audience === CLOUD_WHO_YOU_AUDIENCE) {
+    // A confirmation is a standalone send authority; it never carries read or
+    // write scope, so it cannot be used as a general /mcp bearer.
+    if (request.confirmation !== undefined) return [WHOYOU_MAIL_SEND_SCOPE];
+    const requested = request.scopes ?? [WHOYOU_READ_SCOPE];
+    return requested.includes(WHOYOU_MAIL_WRITE_SCOPE)
+      ? [WHOYOU_READ_SCOPE, WHOYOU_MAIL_WRITE_SCOPE]
+      : [WHOYOU_READ_SCOPE];
   }
   return [SHIYAN_AUTHENTICATE_SCOPE];
 }
@@ -72,6 +85,9 @@ export class ServiceCredentialService {
     const relay =
       request.audience === CLOUD_RELAY_TRANSPORT_AUDIENCE ? request.relay : null;
     const guanlan = request.audience === CLOUD_GUANLAN_AUDIENCE;
+    const whoYou = request.audience === CLOUD_WHO_YOU_AUDIENCE;
+    const confirmation =
+      request.audience === CLOUD_WHO_YOU_AUDIENCE ? request.confirmation : undefined;
     const issued = this.repository.issueWithinActiveDeviceSession(
       parsed.id,
       hashSessionSecret(parsed.secret),
@@ -117,9 +133,11 @@ export class ServiceCredentialService {
             audience: request.audience,
             scope: scopeForRequest(request),
             ...(relay ? { relay } : {}),
-            // The Guanlan consumer is derived from the verified session, never
-            // from the request body. One account is one stable consumer.
-            ...(guanlan ? { consumerId: accountId } : {}),
+            // The Guanlan consumer and the Who You consumer are both derived
+            // from the verified session, never from the request body. One
+            // account is one stable consumer for each service.
+            ...(guanlan || whoYou ? { consumerId: accountId } : {}),
+            ...(confirmation === undefined ? {} : { confirmation }),
           },
         );
         return {
